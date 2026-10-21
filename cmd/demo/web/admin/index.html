@@ -208,6 +208,13 @@ async function refresh() {
 }
 
 refresh();
+// v0.0.8：SSE 实时推送（收到事件即时刷新，替代纯 2s 轮询）
+try {
+  const es = new EventSource('/api/stream');
+  es.onmessage = () => refresh();
+  es.addEventListener('hello', () => { tick.textContent = 'SSE 已连接'; });
+  es.onerror = () => { tick.textContent = 'SSE 断开，回退 2s 轮询'; };
+} catch (e) { /* 旧浏览器回退轮询 */ }
 setInterval(refresh, 2000);
 </script>
 </body>
