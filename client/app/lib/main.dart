@@ -10,6 +10,7 @@ import 'screens/approval_screen.dart';
 import 'screens/audit_screen.dart';
 import 'screens/conversation_screen.dart';
 import 'screens/ledger_screen.dart';
+import 'screens/metric_screen.dart';
 import 'screens/overview_screen.dart';
 import 'screens/session_screen.dart';
 import 'screens/trust_screen.dart';
@@ -54,6 +55,7 @@ class _HomeShellState extends State<HomeShell> {
       TrustScreen(),
       AuditScreen(),
       SessionScreen(),
+      MetricScreen(),
       ConversationScreen(),
     ];
     return Scaffold(
@@ -91,6 +93,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.hub_outlined),
             selectedIcon: Icon(Icons.hub),
             label: '协商',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.insights_outlined),
+            selectedIcon: Icon(Icons.insights),
+            label: '飞轮',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
