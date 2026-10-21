@@ -34,8 +34,10 @@ services:
           cpus: "1.0"
           memory: 256M
     healthcheck:
-      test: ["CMD", "/im2agent", "-healthcheck"]
+      # v0.2.7：新 Dockerfile 基于 alpine，用 wget 打 /healthz
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 15s
       timeout: 3s
       retries: 3
+      start_period: 5s
     # 局域网场景不需要挂载卷（内存版，重启即重置 seed 数据）
