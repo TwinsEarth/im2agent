@@ -1,10 +1,10 @@
 // Package llm 提供 OpenAI 兼容 Chat Completion 客户端（纯 stdlib）。
 //
-// 设计目标：
+// 设计目标（v0.5.0-llm 三档降级）：
 //   - 不引任何第三方 SDK（保持零依赖、离线可编译）；
 //   - 兼容 OpenAI / DeepSeek / 通义 / 本地 vLLM / Ollama OpenAI 兼容端点；
-//   - 无 API Key 时返回 ErrNotConfigured，调用方优雅降级为 hardcode 草稿；
-//   - 超时、重试、错误码统一收敛。
+//   - 三档降级：Template（离线 text/template）→ Fallback（超时/5xx 回退模板）→ 真实 LLM；
+//   - 真实 LLM 调用 3s 超时，失败立刻回退模板，端到端不卡 UI。
 package llm
 
 import (
@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"text/template"
 	"time"
 )
 
@@ -44,7 +45,8 @@ func New(baseURL, apiKey, model string) (*Client, error) {
 		BaseURL: baseURL,
 		APIKey:  apiKey,
 		Model:   model,
-		HTTP:    &http.Client{Timeout: 30 * time.Second},
+		// 3s 硬超时：清单 v0.5.0 要求 LLM 慢或 5xx 时立刻回退模板，不卡审批链路
+		HTTP: &http.Client{Timeout: 3 * time.Second},
 	}, nil
 }
 
@@ -124,4 +126,54 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// DraftParams 模板档输入。
+type DraftParams struct {
+	Category string // 来意类别（如"合作""采购""招聘"）
+	Content  string // 陌生人原话
+	Tone     string // polite / brief / decline
+}
+
+// templateByTone 离线模板（完全无 LLM 也能跑）。
+var templateByTone = map[string]*template.Template{
+	"polite":  template.Must(template.New("polite").Parse("你好，收到关于「{{.Category}}」的合作意向。麻烦先简单介绍下你们的产品形态和已落地案例，我评估后再回复是否安排沟通。")),
+	"brief":   template.Must(template.New("brief").Parse("你好，收到。请先发一份简短的方案摘要到邮箱，我看完后再约时间。")),
+	"decline": template.Must(template.New("decline").Parse("你好，目前我们的方向暂不匹配，谢谢联系，祝好。")),
+}
+
+// TemplateDraft 模板档：完全离线，用 text/template 生成审批/回复卡片文案。
+// 这是三档降级的最底档，永远不依赖网络。
+func TemplateDraft(p DraftParams) string {
+	t := templateByTone[p.Tone]
+	if t == nil {
+		t = templateByTone["polite"]
+	}
+	var buf bytes.Buffer
+	_ = t.Execute(&buf, p)
+	return buf.String()
+}
+
+// DraftWithFallback 三档合一：
+//   - c 为 nil 或未配置 → 返回 "template" + 模板文案；
+//   - Chat 成功 → 返回 "llm" + LLM 文案；
+//   - Chat 超时 / 5xx / 网络错 → 返回 "template_fallback" + 模板文案（err 仅作 note）。
+//
+// 返回值：draft 文案，via（llm/template/template_fallback），err（仅 fallback 时带原因）。
+func (c *Client) DraftWithFallback(ctx context.Context, sysPrompt, userPrompt string, p DraftParams) (draft, via string, err error) {
+	if c == nil || c.APIKey == "" {
+		return TemplateDraft(p), "template", nil
+	}
+	draft, err = c.Chat(ctx, ChatRequest{
+		Messages: []Message{
+			{Role: "system", Content: sysPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Temperature: 0.3,
+		MaxTokens:  200,
+	})
+	if err != nil {
+		return TemplateDraft(p), "template_fallback", err
+	}
+	return draft, "llm", nil
 }
