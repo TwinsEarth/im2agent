@@ -77,6 +77,14 @@ func main() {
 	)
 	llmReady := llmErr == nil
 
+	// v0.0.9-PG：检测 DATABASE_URL。
+	// 生产构建（注入 pgx 驱动）在此切换到 store.NewPostgresStore；
+	// 当前 demo 为 stdlib-only，未注册 PG 驱动，设了 DATABASE_URL 也仅日志提示并保持内存。
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		log.Printf("  DATABASE_URL 已设置（%s…）；当前 demo 为内存版，生产构建请注入 pgx 驱动并执行 migrations/0001_init.sql",
+			dsn[:min(len(dsn), 24)])
+	}
+
 	seed(deps, orch)
 
 	// v0.0.8：SSE 实时推送 hub（审批/账本/审计变更即时推给 /admin/，替代纯轮询）
