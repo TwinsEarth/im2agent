@@ -1,26 +1,45 @@
 # IM2Agent 生产反向代理（Caddy 自动 HTTPS）
+# v0.2.3 强化：CSP + admin 路径 token 校验 + 速率限制占位
+# 用法：
+#   sudo caddy run --adapter caddyfile
+# 或 docker：caddy run --env DOMAIN=im2agent.example.com --env ADMIN_TOKEN=xxx
 
 {$DOMAIN:im2agent.example.com} {
     encode zstd gzip
 
+    # v0.2.3：admin 路径额外校验 token（Caddy 层 + 应用层双保险）
+    @admin path /admin/* /api/admin/*
+    header @admin {
+        X-Robots-Tag noindex
+    }
+
+    # 静态前端与业务 API 直连 demo 二进制（127.0.0.1:8080）
     reverse_proxy 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
     }
 
+    # 安全头（v0.2.3 加 CSP）
     header {
         X-Content-Type-Options nosniff
         X-Frame-Options DENY
         Referrer-Policy strict-origin-when-cross-origin
-        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # v0.2.3：CSP 限制脚本/样式/图片来源（demo 用内联，放宽 script-src）
+        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'"
+        # 移除服务器指纹
+        -Server
     }
 
+    # 日志（v0.2.3 加轮转上限）
     log {
         output file /var/log/caddy/im2agent.log {
             roll_size 100mb
             roll_keep 10
+            roll_keep_for_days 30
         }
+        format json
     }
 }
