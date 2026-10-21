@@ -1,5 +1,11 @@
 # IM2Agent · AI 人机混合熟人社交 IM 平台
 
+![CI](https://github.com/TwinsEarth/im2agent/actions/workflows/ci.yml/badge.svg)
+![npm](https://img.shields.io/npm/v/@im2agent/core?color=green&label=npm)
+![platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20%7C%20iOS%20%7C%20Android-blue)
+![version](https://img.shields.io/badge/version-0.4.0-orange)
+![license](https://img.shields.io/badge/license-MIT-lightgrey)
+
 > 让每个人都像大老板一样，拥有自己的 Agent 秘书/助理/管家团队，管理日常与杂碎事务，
 > 专注于自我提升、家庭生活与工作事业。人机混合 IM：Agent 承担协调/预约/确认的"行政层"，
 > 人只处理情感层与最终决策层。
