@@ -24,6 +24,9 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+    # v0.3.4：资源限制（与 systemd unit 对齐）
+    mem_limit: 512m
+    cpus: 1.0
     environment:
       ADMIN_TOKEN: ${ADMIN_TOKEN:?请设置强随机 token}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
