@@ -1,0 +1,26 @@
+# IM2Agent 生产反向代理（Caddy 自动 HTTPS）
+
+{$DOMAIN:im2agent.example.com} {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:8080 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    }
+
+    log {
+        output file /var/log/caddy/im2agent.log {
+            roll_size 100mb
+            roll_keep 10
+        }
+    }
+}

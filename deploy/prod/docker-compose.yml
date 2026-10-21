@@ -1,0 +1,49 @@
+# IM2Agent 生产部署版（v0.9-prod）
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:-im2agent.example.com}
+
+  im2agent:
+    build:
+      context: ../lan
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?请设置强随机 token}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "/im2agent", "-healthcheck", "-addr", ":8080"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: im2agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置强密码}
+      POSTGRES_DB: im2agent
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pgdata:
