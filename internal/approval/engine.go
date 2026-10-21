@@ -123,8 +123,17 @@ func (s *MemoryStore) Save(t *Ticket) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.byID[t.ID] = t
-	if _, ok := s.byUser[t.UserID]; !ok {
-		s.byUser[t.UserID] = nil
+	// 维护 byUser 倒排索引：同一 ticket 重复 upsert 不重复追加。
+	ids := s.byUser[t.UserID]
+	found := false
+	for _, id := range ids {
+		if id == t.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.byUser[t.UserID] = append(ids, t.ID)
 	}
 	return nil
 }
