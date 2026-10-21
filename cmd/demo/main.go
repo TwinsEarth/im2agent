@@ -31,6 +31,7 @@ import (
 	"im2agent/internal/audit"
 	"im2agent/internal/id"
 	"im2agent/internal/ledger"
+	"im2agent/internal/llm"
 	"im2agent/internal/trustzone"
 )
 
@@ -67,6 +68,14 @@ func main() {
 		log.Fatalf("init deps: %v", err)
 	}
 	orch := api.NewOrchestrator(*deps)
+
+	// v0.7-llm：从环境变量初始化 OpenAI 兼容客户端（未配置则优雅降级）
+	llmClient, llmErr := llm.New(
+		os.Getenv("OPENAI_BASE_URL"),
+		os.Getenv("OPENAI_API_KEY"),
+		os.Getenv("LLM_MODEL"),
+	)
+	llmReady := llmErr == nil
 
 	seed(deps, orch)
 
@@ -191,6 +200,73 @@ func main() {
 		})
 	})
 
+	// ---- v0.7-llm 大模型驱动 ----
+	// GET /api/llm/status  前端判断是否要显示"AI 起草"按钮
+	top.HandleFunc("GET /api/llm/status", func(w http.ResponseWriter, r *http.Request) {
+		model := os.Getenv("LLM_MODEL")
+		if model == "" && llmReady {
+			model = "(default)"
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ready":  llmReady,
+			"model":  model,
+			"baseUrl": os.Getenv("OPENAI_BASE_URL"),
+		})
+	})
+
+	// POST /api/llm/draft  让 Agent 起草一段回复（无 key 时返回 hardcode 草稿）
+	top.HandleFunc("POST /api/llm/draft", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			StrangerAgent string `json:"strangerAgent"`
+			Category      string `json:"category"`
+			Content       string `json:"content"`
+			Tone          string `json:"tone"` // polite / brief / decline
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+
+		tone := body.Tone
+		if tone == "" {
+			tone = "polite"
+		}
+
+		// 无 LLM 配置：返回本地模板草稿（demo 仍可演示）
+		if !llmReady {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"draft": localDraft(body.Category, body.Content, tone),
+				"via":   "template",
+				"note":  "未配置 OPENAI_API_KEY，返回本地模板；设置环境变量后切换为大模型生成",
+			})
+			return
+		}
+
+		system := "你是用户的私人秘书 Agent，替用户给陌生人商务消息起草中文回复。要求：简短（80 字内）、专业、不暴露个人隐私、不承诺具体时间或金额。语气：" + tone
+		user := fmt.Sprintf("陌生人：%s（%s）\n原话：%s\n请起草回复：",
+			body.StrangerAgent, body.Category, body.Content)
+
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		draft, err := llmClient.Chat(ctx, llm.ChatRequest{
+			Messages: []llm.Message{
+				{Role: "system", Content: system},
+				{Role: "user", Content: user},
+			},
+			Temperature: 0.3,
+			MaxTokens:   200,
+		})
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"draft": localDraft(body.Category, body.Content, tone),
+				"via":   "template_fallback",
+				"note":  "LLM 调用失败：" + err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"draft": strings.TrimSpace(draft),
+			"via":   "llm",
+		})
+	})
+
 	// 静态前端（挂根子树；/api/... 与 /healthz 由更具体的注册优先匹配）
 	sub, _ := fs.Sub(webFS, "web")
 	top.Handle("/", http.FileServer(http.FS(sub)))
@@ -285,3 +361,15 @@ func auditEntries(deps *api.Deps) []map[string]any {
 }
 
 var _ = fmt.Sprintf
+
+// localDraft 无 LLM 时的本地模板草稿（demo 降级路径）。
+func localDraft(category, content, tone string) string {
+	switch tone {
+	case "brief":
+		return "你好，收到。请先发一份简短的方案摘要到邮箱，我看完后再约时间。"
+	case "decline":
+		return "你好，目前我们的 IM 一体化方案方向暂不匹配，谢谢联系，祝好。"
+	default: // polite
+		return fmt.Sprintf("你好，收到关于「%s」的合作意向。麻烦先简单介绍下你们的产品形态和已落地案例，我评估后再回复是否安排沟通。", category)
+	}
+}
