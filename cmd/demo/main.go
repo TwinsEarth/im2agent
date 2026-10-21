@@ -132,6 +132,31 @@ func main() {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+
+		// v0.1.0：陌生人付费消息真实扣费闭环。
+		// 若审批单是陌生人来意（payload.isStranger + payload.messageId），approve 时按 billingMode 触发 Charge；
+		// reject 时若已 Charge 则 Refund（pending 占位未扣款则不操作）。
+		if mid, _ := t.Payload["messageId"].(string); mid != "" {
+			isStranger, _ := t.Payload["isStranger"].(bool)
+			if isStranger {
+				switch req.Decision {
+				case "approve":
+					// 发送即扣费：审批通过立即扣款；回复才扣费模式不在此触发（由 /reply 端点扣）
+					if mode := toInt(t.Payload["billingMode"]); mode == int(ledger.ModeSendCharge) {
+						if _, err := deps.Store.Ledger.Charge(mid, t.ID); err != nil {
+							writeJSON(w, http.StatusConflict, map[string]any{"error": "charge failed: " + err.Error()})
+							return
+						}
+					}
+				case "reject":
+					// 已 Charge 的退款；pending 占位不操作
+					if e, err := deps.Store.Ledger.Get(mid); err == nil && e.Status == ledger.StatusCharged {
+						_, _ = deps.Store.Ledger.Refund(mid, "user rejected")
+					}
+				}
+			}
+		}
+
 		hub.broadcast(map[string]any{
 			"event": "approval.decided",
 			"id":    t.ID,
@@ -415,6 +440,19 @@ func contextOf(t *approval.Ticket) string {
 		return s
 	}
 	return ""
+}
+
+// toInt 从 payload 安全取整（内存存 int，JSON 往返后变 float64）。
+func toInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
 }
 
 func priceOf(t *approval.Ticket) int {
