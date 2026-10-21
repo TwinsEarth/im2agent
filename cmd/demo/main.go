@@ -196,6 +196,7 @@ func main() {
 		}
 		// 账本摘要（对齐清单 ledgers）。
 		ledgerEntries := []map[string]any{}
+		strangerChargedCents := int64(0)
 		if l, ok := deps.Store.Ledger.(interface{ List() []*ledger.Entry }); ok {
 			for _, e := range l.List() {
 				ledgerEntries = append(ledgerEntries, map[string]any{
@@ -205,14 +206,43 @@ func main() {
 					"amount_cents": e.AmountCents,
 					"status":       e.Status.String(),
 				})
+				if e.Status == ledger.StatusCharged {
+					strangerChargedCents += e.AmountCents
+				}
 			}
 		}
+
+		// v0.1.1：Context 飞轮度量（从 tickets/audits/ledger 推算）。
+		approved, rejected, modified := 0, 0, 0
+		for _, t := range all {
+			switch t.State {
+			case approval.StateCompleted:
+				approved++
+			case approval.StateRejected:
+				rejected++
+			case approval.StateFailed:
+				modified++ // demo 里 failed 近似"用户代改"
+			}
+		}
+		auditCount := 0
+		if sink, ok := deps.Store.Audit.(*audit.MemorySink); ok {
+			auditCount = len(sink.Entries())
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{
 			"userId":   demoUserID,
 			"pending":  pending,
 			"tickets":  tickets,
 			"audits":   auditEntries(deps),
 			"ledgers":  ledgerEntries,
+			"metrics": map[string]any{
+				"approval_total":          len(all),
+				"approval_approved":       approved,
+				"approval_rejected":       rejected,
+				"approval_modified":       modified,
+				"stranger_charged_cents":  strangerChargedCents,
+				"audit_events_total":      auditCount,
+			},
 			"serverAt": time.Now(),
 		})
 	})
