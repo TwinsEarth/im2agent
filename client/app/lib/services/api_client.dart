@@ -52,6 +52,16 @@ class ApiClient {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
+  /// v0.1.6：拉取不可变审计事件流。
+  Future<List<Map<String, dynamic>>> fetchAudit() async {
+    final r = await http.get(_u('/api/admin/audit'));
+    if (r.statusCode != 200) return [];
+    final data = jsonDecode(r.body) as Map<String, dynamic>;
+    return (data['events'] as List<dynamic>? ?? [])
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+  }
+
   /// v0.1.5：拉取本人当前全部信任授权列表。
   Future<List<Map<String, dynamic>>> fetchTrusts() async {
     final r = await http.get(_u('/api/admin/state'));
