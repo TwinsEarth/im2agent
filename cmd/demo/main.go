@@ -79,6 +79,10 @@ func main() {
 
 	seed(deps, orch)
 
+	// v0.0.8：SSE 实时推送 hub（审批/账本/审计变更即时推给 /admin/，替代纯轮询）
+	hub := newSSEHub()
+	defer hub.close()
+
 	top := http.NewServeMux()
 
 	// 业务子服务（StripPrefix 后复用现有 mux）
@@ -120,6 +124,12 @@ func main() {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+		hub.broadcast(map[string]any{
+			"event": "approval.decided",
+			"id":    t.ID,
+			"state": string(t.State),
+			"at":    time.Now().UTC(),
+		})
 		writeJSON(w, http.StatusOK, map[string]any{"id": t.ID, "state": string(t.State)})
 	})
 
@@ -178,6 +188,9 @@ func main() {
 	top.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "app": "im2agent-demo"})
 	})
+
+	// v0.0.8：SSE 实时事件流（/admin/ 前端 EventSource 接这里，收到事件即时刷新）
+	top.HandleFunc("GET /api/stream", hub.handler)
 
 	// v0.9-prod：可选鉴权中间件。设置 ADMIN_TOKEN 后，/api/admin/* 与 /admin/ 需 Bearer。
 	adminToken := os.Getenv("ADMIN_TOKEN")
@@ -446,5 +459,93 @@ func withAdminAuth(next http.Handler, token string) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sseHub 极简 Server-Sent Events hub：审批/账本/审计变更时广播给所有 /api/stream 订阅者。
+// 纯 stdlib，无外部依赖；单实例足够 demo / 小规模生产。
+type sseHub struct {
+	subs   chan chan []byte
+	unsubs chan chan []byte
+	events chan []byte
+}
+
+func newSSEHub() *sseHub {
+	h := &sseHub{
+		subs:   make(chan chan []byte),
+		unsubs: make(chan chan []byte),
+		events: make(chan []byte, 32),
+	}
+	go h.run()
+	return h
+}
+
+func (h *sseHub) run() {
+	clients := make(map[chan []byte]struct{})
+	for {
+		select {
+		case c := <-h.subs:
+			clients[c] = struct{}{}
+		case c := <-h.unsubs:
+			if _, ok := clients[c]; ok {
+				delete(clients, c)
+				close(c)
+			}
+		case ev := <-h.events:
+			for c := range clients {
+				select {
+				case c <- ev:
+				default: // 慢客户端丢弃，不阻塞广播
+				}
+			}
+		}
+	}
+}
+
+func (h *sseHub) broadcast(payload map[string]any) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	select {
+	case h.events <- b:
+	default:
+	}
+}
+
+func (h *sseHub) close() {
+	close(h.events)
+}
+
+func (h *sseHub) handler(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch := make(chan []byte, 8)
+	h.subs <- ch
+	defer func() { h.unsubs <- ch }()
+
+	// 立即发一个 hello，让前端确认连接已建立
+	fmt.Fprintf(w, "event: hello\ndata: {\"event\":\"connected\"}\n\n")
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "data: %s\n\n", ev)
+			flusher.Flush()
+		}
+	}
 }
 
