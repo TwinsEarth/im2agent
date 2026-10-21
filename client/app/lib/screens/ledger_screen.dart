@@ -3,6 +3,8 @@
 /// 数据源：GET /api/admin/ledger（entries / dailySent / dailyLimit）。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
@@ -18,6 +20,22 @@ class LedgerScreen extends StatefulWidget {
 
 class _LedgerScreenState extends State<LedgerScreen> {
   late Future<Map<String, dynamic>> _future = widget.client.fetchLedger();
+  StreamSubscription? _sseSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // v0.1.7：扣费事件实时刷账本
+    _sseSub = widget.client.streamEvents().listen((_) {
+      if (mounted) setState(() => _future = widget.client.fetchLedger());
+    });
+  }
+
+  @override
+  void dispose() {
+    _sseSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
