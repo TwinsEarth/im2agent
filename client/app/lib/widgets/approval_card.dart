@@ -47,10 +47,18 @@ class ApprovalCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                // v0.2.5：信任档中文标签 + 颜色区分
                 Chip(
-                  label: Text(ticket.trustZone,
-                      style: const TextStyle(fontSize: 11)),
+                  label: Text(
+                    ticket.trustZone == 'stranger'
+                        ? '陌生人 · L4'
+                        : '家庭 · L1',
+                    style: const TextStyle(fontSize: 11),
+                  ),
                   visualDensity: VisualDensity.compact,
+                  backgroundColor: ticket.trustZone == 'stranger'
+                      ? Colors.orange.shade100
+                      : Colors.green.shade100,
                 ),
               ],
             ),
