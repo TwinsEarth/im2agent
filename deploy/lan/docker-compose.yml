@@ -1,0 +1,34 @@
+# IM2Agent 局域网版 compose（家庭/办公室内网一键起）
+# 用法：
+#   docker compose -f deploy/lan/docker-compose.yml up -d
+# 访问：
+#   用户面  http://<本机局域网IP>:8080/
+#   运维面  http://<本机局域网IP>:8080/admin/
+# 特点：
+#   - 单容器、零外部依赖（内存存储）
+#   - 镜像 < 10 MB（scratch + 静态二进制）
+#   - 只监听内网，不暴露公网（防火墙规则用户自理）
+
+services:
+  im2agent:
+    build:
+      context: ../..
+      dockerfile: deploy/lan/Dockerfile
+    image: im2agent:lan
+    container_name: im2agent-lan
+    restart: unless-stopped
+    ports:
+      # 绑 0.0.0.0 让局域网内其他设备能访问
+      - "8080:8080"
+    # 容器内资源限制（家庭/办公室场景）
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "/im2agent", "-healthcheck"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    # 局域网场景不需要挂载卷（内存版，重启即重置 seed 数据）

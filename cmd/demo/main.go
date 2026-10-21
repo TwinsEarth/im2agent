@@ -22,6 +22,8 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"im2agent/internal/api"
@@ -40,7 +42,25 @@ const demoUserID uint64 = 100
 
 func main() {
 	addr := flag.String("addr", ":8080", "监听地址")
+	healthcheck := flag.Bool("healthcheck", false, "健康检查模式：调用本机 /healthz，成功 exit 0，失败 exit 1（供 docker HEALTHCHECK 用）")
 	flag.Parse()
+
+	if *healthcheck {
+		// 从 -addr 推断监听端口（去掉前导冒号）
+		host := strings.TrimPrefix(*addr, ":")
+		if host == "" {
+			host = "8080"
+		}
+		resp, err := http.Get("http://127.0.0.1:" + host + "/healthz")
+		if err != nil {
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	deps, err := api.NewDeps("", "")
 	if err != nil {
