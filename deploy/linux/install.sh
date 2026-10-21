@@ -39,16 +39,21 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
   echo "  已安装 .env（含密钥，权限 0600）"
 fi
 
-echo "==> 3/5 安装 systemd unit"
+echo "==> 3/6 安装 systemd unit"
 install -m 0644 "$SCRIPT_DIR/im2agent.service" /etc/systemd/system/im2agent.service
 systemctl daemon-reload
 
-echo "==> 4/5 启动并设置开机自启"
+echo "==> 4/6 安装 journald 日志轮转（防 daemon.log 爆盘）"
+install -d -m 0755 /etc/systemd/journald.conf.d
+install -m 0644 "$SCRIPT_DIR/journald-im2agent.conf" /etc/systemd/journald.conf.d/im2agent.conf
+systemctl restart systemd-journald
+
+echo "==> 5/6 启动并设置开机自启"
 systemctl enable --now im2agent
 sleep 1
 systemctl --no-pager status im2agent || true
 
-echo "==> 5/5 健康检查"
+echo "==> 6/6 健康检查"
 if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null; then
   echo "✅ IM2Agent 已启动：http://<server-ip>:$PORT/  (用户面)  http://<server-ip>:$PORT/admin/  (运维面)"
 else
