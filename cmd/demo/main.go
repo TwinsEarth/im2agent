@@ -32,6 +32,7 @@ import (
 	"im2agent/internal/id"
 	"im2agent/internal/ledger"
 	"im2agent/internal/llm"
+	"im2agent/internal/negotiation"
 	"im2agent/internal/trustzone"
 )
 
@@ -235,6 +236,7 @@ func main() {
 			"tickets":  tickets,
 			"audits":   auditEntries(deps),
 			"ledgers":  ledgerEntries,
+			"sessions": listSessions(deps),
 			"metrics": map[string]any{
 				"approval_total":          len(all),
 				"approval_approved":       approved,
@@ -448,6 +450,22 @@ func seed(deps *api.Deps, orch *api.Orchestrator) {
 		},
 		time.Now().Add(30*time.Minute))
 
+	// 5) v0.1.2：demo Agent 协商会话（陌生 biz-agent ↔ filter-agent，2 轮）
+	sess := negotiation.NewSession("neg-demo-001", 5, 10000)
+	sess.Deadline = time.Now().Add(30 * time.Minute)
+	_, _ = sess.Apply(negotiation.Turn{
+		SessionID: "neg-demo-001", FromAgentID: "biz-agent", ToAgentID: "stranger-filter-agent",
+		Intent: negotiation.IntentPropose,
+		Payload: map[string]any{"category": "商务合作", "content": "企业 IM 接入层，20 分钟"},
+	})
+	_, _ = sess.Apply(negotiation.Turn{
+		SessionID: "neg-demo-001", FromAgentID: "stranger-filter-agent", ToAgentID: "biz-agent",
+		Intent: negotiation.IntentPropose,
+		Payload: map[string]any{"reply": "来意已收到，费用 1 元发送即扣；通过后转本人"},
+	})
+	sess.State = negotiation.StateAuthRequired
+	_ = deps.Store.Negotiation.SaveSession(context.Background(), sess)
+
 	_ = orch // orch 供后续审计/协商端点复用
 }
 
@@ -493,6 +511,32 @@ func priceOf(t *approval.Ticket) int {
 		return v
 	}
 	return 0
+}
+
+// listSessions 从内存协商存储列出全部会话（admin 运维台用）。
+func listSessions(deps *api.Deps) []map[string]any {
+	type lister interface{ List() []*negotiation.Session }
+	ls, ok := deps.Store.Negotiation.(lister)
+	if !ok {
+		return []map[string]any{}
+	}
+	out := make([]map[string]any, 0)
+	for _, s := range ls.List() {
+		turns := make([]map[string]any, 0, len(s.Turns))
+		for _, t := range s.Turns {
+			turns = append(turns, map[string]any{
+				"from": t.FromAgentID, "to": t.ToAgentID,
+				"intent": string(t.Intent), "payload": t.Payload,
+			})
+		}
+		out = append(out, map[string]any{
+			"id": s.ID, "state": string(s.State),
+			"round": s.Round, "max_rounds": s.MaxRounds,
+			"ticket_id": s.ApprovalTicketID,
+			"turns":     turns,
+		})
+	}
+	return out
 }
 
 // auditEntries 从内存审计 sink 取出全部事件（运维界面用）。
