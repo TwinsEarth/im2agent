@@ -23,7 +23,7 @@ type CreateNegotiationRequest struct {
 type TurnRequest struct {
 	FromAgentID string         `json:"fromAgentId"`
 	ToAgentID   string         `json:"toAgentId"`
-	Intent      string         `json:"intent" // PROPOSE/COUNTER/ACCEPT/REJECT/REQUEST_INFO/REQUEST_AUTH
+	Intent      string         `json:"intent"` // PROPOSE/COUNTER/ACCEPT/REJECT/REQUEST_INFO/REQUEST_AUTH
 	Payload     map[string]any `json:"payload"`
 	Artifacts   []string       `json:"artifacts,omitempty"`
 }

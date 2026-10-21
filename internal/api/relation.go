@@ -12,7 +12,7 @@ import (
 type GrantTrustRequest struct {
 	UserID   uint64 `json:"userId"`
 	TargetID uint64 `json:"targetId"`
-	Level    int    `json:"level"" // 0..4
+	Level    int    `json:"level"` // 0..4
 }
 
 // GateCheckRequest 能力门控检查。
