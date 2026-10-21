@@ -173,6 +173,18 @@ func (l *Ledger) DailyUsage(senderID uint64) (sent int, limit int) {
 	return l.dailySent[l.dayKey(senderID)], l.DailyLimit
 }
 
+// List 返回全部账本条目副本（运维/审计界面用）。
+func (l *Ledger) List() []*Entry {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]*Entry, 0, len(l.entries))
+	for _, e := range l.entries {
+		cp := *e
+		out = append(out, &cp)
+	}
+	return out
+}
+
 func (l *Ledger) dayKey(userID uint64) string {
 	return fmt.Sprintf("%d|%s", userID, l.now().Format("2006-01-02"))
 }

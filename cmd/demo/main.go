@@ -26,12 +26,13 @@ import (
 
 	"im2agent/internal/api"
 	"im2agent/internal/approval"
+	"im2agent/internal/audit"
 	"im2agent/internal/id"
 	"im2agent/internal/ledger"
 	"im2agent/internal/trustzone"
 )
 
-//go:embed web/index.html
+//go:embed web
 var webFS embed.FS
 
 // demo 用户 ID（本人）。
@@ -93,9 +94,90 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "app": "im2agent-demo"})
 	})
 
+	// ---- 运维界面（v0.4-admin）----
+	// GET /api/admin/agents  Agent 能力注册表
+	top.HandleFunc("GET /api/admin/agents", func(w http.ResponseWriter, r *http.Request) {
+		caps, _ := deps.Store.Capability.ListCapabilities(r.Context())
+		out := make([]map[string]any, 0, len(caps))
+		for _, c := range caps {
+			out = append(out, map[string]any{
+				"agentId":                    c.AgentID,
+				"trustLevelMin":              c.TrustLevelMin.String(),
+				"allowedSkills":              c.AllowedSkills,
+				"budgetCentsPerDay":          c.BudgetCentsPerDay,
+				"requiresApprovalAboveCents": c.RequiresApprovalAboveCents,
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"agents": out})
+	})
+
+	// GET /api/admin/approvals  全部审批单（含终态）
+	top.HandleFunc("GET /api/admin/approvals", func(w http.ResponseWriter, r *http.Request) {
+		all, _ := deps.Store.Approval.All()
+		out := make([]map[string]any, 0, len(all))
+		for _, t := range all {
+			out = append(out, map[string]any{
+				"id":        t.ID,
+				"userId":    t.UserID,
+				"from":      t.SourceAgentID,
+				"type":      string(t.Type),
+				"state":     string(t.State),
+				"payload":   t.Payload,
+				"createdAt": t.CreatedAt,
+				"deadline":  t.Deadline,
+				"events":    t.Events,
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tickets": out})
+	})
+
+	// GET /api/admin/ledger  付费账本全量流水 + 当日用量
+	top.HandleFunc("GET /api/admin/ledger", func(w http.ResponseWriter, r *http.Request) {
+		sent, limit := deps.Store.Ledger.DailyUsage(demoUserID)
+		type entryView struct {
+			MessageID   string    `json:"messageId"`
+			SenderID    uint64    `json:"senderId"`
+			ReceiverID  uint64    `json:"receiverId"`
+			Mode        string    `json:"mode"`
+			AmountCents int64     `json:"amountCents"`
+			Status      string    `json:"status"`
+			ChargedAt   time.Time `json:"chargedAt,omitempty"`
+			CardID      string    `json:"approvalCardId,omitempty"`
+		}
+		entries := []entryView{}
+		if l, ok := deps.Store.Ledger.(interface{ List() []*ledger.Entry }); ok {
+			for _, e := range l.List() {
+				mode := "send_charge"
+				if e.Mode == ledger.ModeReplyCharge {
+					mode = "reply_charge"
+				}
+				entries = append(entries, entryView{
+					MessageID: e.MessageID, SenderID: e.SenderID, ReceiverID: e.ReceiverID,
+					Mode: mode, AmountCents: e.AmountCents, Status: e.Status.String(),
+					ChargedAt: e.ChargedAt, CardID: e.ApprovalCardID,
+				})
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"entries":   entries,
+			"dailySent": sent, "dailyLimit": limit,
+		})
+	})
+
+	// GET /api/admin/audit  审计事件流
+	top.HandleFunc("GET /api/admin/audit", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"events": auditEntries(deps),
+		})
+	})
+
 	// 静态前端（挂根子树；/api/... 与 /healthz 由更具体的注册优先匹配）
 	sub, _ := fs.Sub(webFS, "web")
 	top.Handle("/", http.FileServer(http.FS(sub)))
+
+	// 运维界面 /admin/
+	adminSub, _ := fs.Sub(webFS, "web/admin")
+	top.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.FS(adminSub))))
 
 	log.Printf("IM2Agent demo listening on http://localhost%s", *addr)
 	log.Printf("  本人 userID=%d；家庭 Agent 已授权 L1，物业 Agent 已授权 L2", demoUserID)
@@ -158,6 +240,28 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// auditEntries 从内存审计 sink 取出全部事件（运维界面用）。
+func auditEntries(deps *api.Deps) []map[string]any {
+	sink, ok := deps.Store.Audit.(*audit.MemorySink)
+	if !ok {
+		return []map[string]any{}
+	}
+	evs := sink.Entries()
+	out := make([]map[string]any, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, map[string]any{
+			"at":        e.At,
+			"messageId": e.MessageID,
+			"userId":    e.UserID,
+			"agentId":   e.AgentID,
+			"action":    string(e.Action),
+			"decision":  e.Decision,
+			"detail":    e.Detail,
+		})
+	}
+	return out
 }
 
 var _ = fmt.Sprintf

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IM2Agent · 运维控制台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0b0e14; color: #e6e8ee;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px; padding: 20px;
+  }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  header h1 { font-size: 16px; }
+  header h1 span { color: #ffd47a; }
+  header a { color: #7ab8ff; text-decoration: none; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .card {
+    background: #141a26; border: 1px solid #232c3d; border-radius: 10px; padding: 14px 16px;
+  }
+  .card h2 {
+    font-size: 12px; color: #7a8598; text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .card.full { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2632; vertical-align: top; }
+  th { color: #7a8598; font-weight: 500; font-size: 11px; }
+  td.mono, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; color: #b8c0cf; }
+  .pill {
+    display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 10px;
+    background: #1f2a3d; color: #b8c0cf;
+  }
+  .pill.PENDING, .pill.Pending { background: #3d2f1a; color: #ffd47a; }
+  .pill.APPROVED, .pill.COMPLETED, .pill.Charged, .pill.Allow { background: #1f3d2e; color: #7ed6a5; }
+  .pill.REJECTED, .pill.Refunded, .pill.Deny { background: #3d1f1f; color: #ff9a9a; }
+  .pill.family { background: #1e3a5f; color: #7ab8ff; }
+  .pill.trusted { background: #1f3d2e; color: #7ed6a5; }
+  .stat { display: flex; gap: 18px; margin-bottom: 10px; }
+  .stat div b { font-size: 18px; color: #ffd47a; display: block; }
+  .stat div span { font-size: 11px; color: #7a8598; }
+  .ev { padding: 6px 8px; border-left: 2px solid #2d3a52; margin-bottom: 4px; font-size: 11px; color: #9aa5b8; }
+  .ev.deny { border-color: #ff6b6b; }
+  .ev.approval { border-color: #ffd47a; }
+  .empty { color: #5a6578; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IM2Agent <span>·</span> 运维控制台 <small style="color:#7a8598">v0.4-admin</small></h1>
+  <div>
+    <a href="/">← 用户演示面</a>
+    <span style="margin-left:14px;color:#7a8598" id="tick">--</span>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="card">
+    <h2>系统指标 <span id="stats"></span></h2>
+    <div class="stat">
+      <div><b id="sTickets">-</b><span>审批单总数</span></div>
+      <div><b id="sPending">-</b><span>待处理</span></div>
+      <div><b id="sAgents">-</b><span>注册 Agent</span></div>
+      <div><b id="sLedger">-</b><span>账本条目</span></div>
+      <div><b id="sDaily">-</b><span>今日发送 / 上限</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>五档信任矩阵（§1.4）</h2>
+    <table>
+      <tr><th>档位</th><th>自主执行</th><th>需审批</th></tr>
+      <tr><td><span class="pill">L0 本人</span></td><td>全部</td><td>—</td></tr>
+      <tr><td><span class="pill family">L1 家庭</span></td><td>日程 / 采购 / 物业</td><td>大额 / 对外承诺</td></tr>
+      <tr><td><span class="pill trusted">L2 信任</span></td><td>预约 / 留言</td><td>第三方信息</td></tr>
+      <tr><td><span class="pill">L3 已知</span></td><td>接收留言摘要</td><td>所有对外回复</td></tr>
+      <tr><td><span class="pill">L4 陌生</span></td><td>仅结构化来意</td><td>付费后查看</td></tr>
+    </table>
+  </div>
+
+  <div class="card full">
+    <h2>Agent 能力注册表（代码层门控的数据源）</h2>
+    <table id="agents">
+      <tr><th>Agent ID</th><th>最低信任档</th><th>Skill 白名单</th><th>单日预算(分)</th><th>超阈值转审批(分)</th></tr>
+    </table>
+  </div>
+
+  <div class="card full">
+    <h2>审批单全量（含终态）</h2>
+    <table id="tickets">
+      <tr><th>ID</th><th>来自 Agent</th><th>类型</th><th>状态</th><th>关键内容</th><th>创建时间</th><th>事件数</th></tr>
+    </table>
+  </div>
+
+  <div class="card full">
+    <h2>付费账本流水（不可变）</h2>
+    <table id="ledger">
+      <tr><th>Message ID</th><th>发送→接收</th><th>计费模式</th><th>金额(分)</th><th>状态</th><th>审批卡</th><th>扣费时间</th></tr>
+    </table>
+  </div>
+
+  <div class="card full">
+    <h2>审计事件流（门控 / 付费 / 审批全量回放）</h2>
+    <div id="events"><div class="empty">等待事件…</div></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmtTime = t => t ? new Date(t).toLocaleString('zh-CN', {hour12:false}) : '-';
+
+async function jget(p) {
+  const r = await fetch(p); return r.json();
+}
+
+function esc(s) { return String(s ?? '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+
+async function refresh() {
+  const [agents, tickets, ledger, audit] = await Promise.all([
+    jget('/api/admin/agents'),
+    jget('/api/admin/approvals'),
+    jget('/api/admin/ledger'),
+    jget('/api/admin/audit'),
+  ]);
+
+  const ag = agents.agents || [];
+  $('agents').innerHTML = '<tr><th>Agent ID</th><th>最低信任档</th><th>Skill 白名单</th><th>单日预算(分)</th><th>超阈值转审批(分)</th></tr>' +
+    ag.map(a => `<tr>
+      <td class="mono">${esc(a.agentId)}</td>
+      <td><span class="pill ${a.trustLevelMin==='family'?'family':a.trustLevelMin==='trusted'?'trusted':''}">${esc(a.trustLevelMin)}</span></td>
+      <td class="mono">${(a.allowedSkills||[]).map(esc).join(', ')}</td>
+      <td>${a.budgetCentsPerDay||0}</td>
+      <td>${a.requiresApprovalAboveCents||0}</td>
+    </tr>`).join('');
+
+  const tk = tickets.tickets || [];
+  $('tickets').innerHTML = '<tr><th>ID</th><th>来自 Agent</th><th>类型</th><th>状态</th><th>关键内容</th><th>创建时间</th><th>事件数</th></tr>' +
+    tk.map(t => {
+      const p = t.payload || {};
+      const summary = p.item ? `${p.item}（¥${(p.amountCents/100).toFixed(2)}）`
+        : p.category ? `[${p.category}] ${p.content}`
+        : JSON.stringify(p).slice(0,80);
+      return `<tr>
+        <td class="mono">${esc(t.id)}</td>
+        <td>${esc(t.from)}</td>
+        <td>${esc(t.type)}</td>
+        <td><span class="pill ${esc(t.state)}">${esc(t.state)}</span></td>
+        <td>${esc(summary)}</td>
+        <td>${fmtTime(t.createdAt)}</td>
+        <td>${(t.events||[]).length}</td>
+      </tr>`;
+    }).join('');
+
+  const le = ledger.entries || [];
+  $('ledger').innerHTML = '<tr><th>Message ID</th><th>发送→接收</th><th>计费模式</th><th>金额(分)</th><th>状态</th><th>审批卡</th><th>扣费时间</th></tr>' +
+    le.map(e => `<tr>
+      <td class="mono">${esc(e.messageId).slice(0,8)}…</td>
+      <td>${e.senderId} → ${e.receiverId}</td>
+      <td>${esc(e.mode)}</td>
+      <td>${e.amountCents}</td>
+      <td><span class="pill ${esc(e.status)}">${esc(e.status)}</span></td>
+      <td class="mono">${esc(e.approvalCardId)||'-'}</td>
+      <td>${fmtTime(e.chargedAt)}</td>
+    </tr>`).join('');
+
+  const ev = (audit.events || []).slice().reverse();
+  $('events').innerHTML = ev.length
+    ? ev.map(e => `<div class="ev ${/deny/i.test(e.decision||'')?'deny':(/approval/i.test(e.action||'')?'approval':'')}">
+        <b class="mono">${esc(e.agentId||'system')}</b> · ${fmtTime(e.at)} —
+        ${esc(e.action)} · <b>${esc(e.decision)}</b>
+        ${e.detail ? '<span class="mono"> '+esc(JSON.stringify(e.detail)).slice(0,120)+'</span>' : ''}
+      </div>`).join('')
+    : '<div class="empty">等待事件…</div>';
+
+  const pendingCount = tk.filter(t => t.state === 'PENDING').length;
+  $('sTickets').textContent = tk.length;
+  $('sPending').textContent = pendingCount;
+  $('sAgents').textContent = ag.length;
+  $('sLedger').textContent = le.length;
+  $('sDaily').textContent = `${ledger.dailySent}/${ledger.dailyLimit}`;
+  $('tick').textContent = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
