@@ -52,6 +52,16 @@ class ApiClient {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
+  /// v0.1.8：拉取 A2A 协商会话列表（含每轮 turns）。
+  Future<List<Map<String, dynamic>>> fetchSessions() async {
+    final r = await http.get(_u('/api/admin/state'));
+    if (r.statusCode != 200) return [];
+    final data = jsonDecode(r.body) as Map<String, dynamic>;
+    return (data['sessions'] as List<dynamic>? ?? [])
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+  }
+
   /// v0.1.6：拉取不可变审计事件流。
   Future<List<Map<String, dynamic>>> fetchAudit() async {
     final r = await http.get(_u('/api/admin/audit'));
