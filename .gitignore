@@ -33,3 +33,5 @@ client/app/ios/.symlinks/
 # 本地环境
 *.local
 .env
+deploy/**/.env
+deploy/**/.env.local
