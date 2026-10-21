@@ -27,12 +27,12 @@ services:
       # OPENAI_BASE_URL: "https://api.deepseek.com/v1"
       # OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       # LLM_MODEL: "deepseek-chat"
-    # 容器内资源限制（家庭/办公室场景）
+    # 容器内资源限制（v0.3.5：与生产 compose 对齐）
     deploy:
       resources:
         limits:
           cpus: "1.0"
-          memory: 256M
+          memory: 512M
     healthcheck:
       # v0.2.7：新 Dockerfile 基于 alpine，用 wget 打 /healthz
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
