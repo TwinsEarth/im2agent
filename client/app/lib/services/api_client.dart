@@ -1,39 +1,81 @@
-/// API 客户端（v0.1 桩）。
+/// API 客户端（v0.8 真连后端）。
 ///
-/// Phase 1 对接：Agent 编排 API（审批/协商/信任/付费），底层 gRPC + 腾讯云 IM SDK。
-/// 客户端 SDK 分层见技术文档 §5.1：UI → Business Controller → SDK Adapter → Local Persistence。
+/// 后端是 cmd/demo 起的单二进制服务，默认 http://127.0.0.1:8080。
+/// 真机调试时改为电脑局域网 IP（手机和电脑同一 WiFi）。
 library;
 
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
 class ApiClient {
-  ApiClient({this.baseUrl = 'http://localhost:8080'});
+  ApiClient({this.baseUrl = 'http://127.0.0.1:8080'});
 
-  final String baseUrl;
+  String baseUrl;
 
-  /// 拉取待审批列表（审批态）。Phase 1 对接 approval-engine gRPC。
+  Uri _u(String path) => Uri.parse('$baseUrl$path');
+
+  /// 拉取本人待审列表（demo 聚合端点）。
   Future<List<Map<String, dynamic>>> fetchPendingApprovals() async {
-    // TODO(phase1): GET $baseUrl/v1/approvals/pending
-    throw UnimplementedError('Phase 1: 对接 approval-engine');
+    final r = await http.get(_u('/api/admin/state'));
+    if (r.statusCode != 200) throw Exception('state ${r.statusCode}');
+    final data = jsonDecode(r.body) as Map<String, dynamic>;
+    return (data['pending'] as List<dynamic>)
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
   }
 
-  /// 提交审批决策（通过/驳回/修改）。Phase 1 对接 approval-engine gRPC。
-  Future<void> submitApproval({
+  /// 对审批单执行动作：approve / reject / decide。
+  Future<Map<String, dynamic>> submitApproval({
     required String ticketId,
-    required String action, // approve / reject / modify
+    required String action,
     String? note,
   }) async {
-    // TODO(phase1): POST $baseUrl/v1/approvals/{ticketId}/{action}
-    throw UnimplementedError('Phase 1: 对接 approval-engine');
+    final r = await http.post(
+      _u('/api/approval/decide'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'ticketId': ticketId, 'action': action, 'note': note ?? ''}),
+    );
+    if (r.statusCode != 200) throw Exception('decide ${r.statusCode}: ${r.body}');
+    return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  /// 拉取巡视态 Agent 团队状态。Phase 1 对接 agent-orchestrator gRPC。
-  Future<List<Map<String, dynamic>>> fetchAgentTeamStatus() async {
-    // TODO(phase1): GET $baseUrl/v1/agents/team
-    throw UnimplementedError('Phase 1: 对接 agent-orchestrator');
+  /// 探测后端是否配了 LLM。
+  Future<Map<String, dynamic>> llmStatus() async {
+    try {
+      final r = await http.get(_u('/api/llm/status'));
+      if (r.statusCode != 200) return {'ready': false};
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } catch (_) {
+      return {'ready': false};
+    }
   }
 
-  /// 拉取陌生人来意队列。Phase 1 对接 negotiation-svc + payment-svc。
-  Future<List<Map<String, dynamic>>> fetchStrangerIntents() async {
-    // TODO(phase1): GET $baseUrl/v1/stranger/intents
-    throw UnimplementedError('Phase 1: 对接 negotiation-svc');
+  /// 让 Agent 替本人起草一段陌生人回复。
+  Future<Map<String, dynamic>> llmDraft({
+    required String category,
+    required String content,
+    String tone = 'polite',
+  }) async {
+    final r = await http.post(
+      _u('/api/llm/draft'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'category': category,
+        'content': content,
+        'tone': tone,
+      }),
+    );
+    if (r.statusCode != 200) throw Exception('draft ${r.statusCode}');
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+
+  /// 健康检查。
+  Future<bool> healthz() async {
+    try {
+      final r = await http.get(_u('/healthz'));
+      return r.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 }
