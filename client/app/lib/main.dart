@@ -20,7 +20,7 @@ void main() {
 }
 
 /// 客户端版本号（v0.3.0：与后端 /healthz 的 version 对应）
-const String appVersion = 'v0.4.0';
+const String appVersion = 'v0.4.1';
 
 class IM2AgentApp extends StatelessWidget {
   const IM2AgentApp({super.key});
