@@ -10,6 +10,7 @@ BINARY="${1:-./im2agent-linux-amd64}"
 INSTALL_DIR=/opt/im2agent
 SERVICE_NAME=im2agent
 PORT="${PORT:-8080}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "请用 sudo 运行：sudo bash $0" >&2
@@ -31,8 +32,14 @@ fi
 install -m 0755 "$BINARY" "$INSTALL_DIR/im2agent"
 chown -R im2agent:im2agent "$INSTALL_DIR" /var/log/im2agent
 
+# 可选：同目录下若有 .env（ADMIN_TOKEN / OPENAI_*），以 0600 安装并归 im2agent
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+  install -m 0600 "$SCRIPT_DIR/.env" "$INSTALL_DIR/.env"
+  chown im2agent:im2agent "$INSTALL_DIR/.env"
+  echo "  已安装 .env（含密钥，权限 0600）"
+fi
+
 echo "==> 3/5 安装 systemd unit"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install -m 0644 "$SCRIPT_DIR/im2agent.service" /etc/systemd/system/im2agent.service
 systemctl daemon-reload
 
