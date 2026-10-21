@@ -91,4 +91,38 @@ class ApiClient {
       return false;
     }
   }
+
+  /// v0.1.4：订阅后端 SSE 事件流（/api/stream）。
+  ///
+  /// 后端用纯 stdlib 实现的 text/event-stream；每条 `data:` 行 JSON 解码后产出。
+  /// 连接断开时返回的 Stream 会自动关闭，调用方负责重连。
+  Stream<Map<String, dynamic>> streamEvents() async* {
+    final client = http.Client();
+    try {
+      final req = http.Request('GET', _u('/api/stream'));
+      final res = await client.send(req);
+      if (res.statusCode != 200) return;
+      final buf = StringBuffer();
+      await for (final chunk in res.stream.transform(utf8.decoder)) {
+        for (final ch in chunk.split('')) {
+          if (ch == '\n') {
+            final line = buf.toString();
+            buf.clear();
+            if (line.startsWith('data:')) {
+              final payload = line.substring(5).trim();
+              if (payload.isEmpty) continue;
+              try {
+                final decoded = jsonDecode(payload);
+                if (decoded is Map<String, dynamic>) yield decoded;
+              } catch (_) {/* 心跳或非 JSON 行忽略 */}
+            }
+          } else {
+            buf.write(ch);
+          }
+        }
+      }
+    } finally {
+      client.close();
+    }
+  }
 }
