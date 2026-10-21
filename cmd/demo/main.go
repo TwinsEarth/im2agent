@@ -237,6 +237,7 @@ func main() {
 			"audits":   auditEntries(deps),
 			"ledgers":  ledgerEntries,
 			"sessions": listSessions(deps),
+			"trusts":   listTrusts(deps),
 			"metrics": map[string]any{
 				"approval_total":          len(all),
 				"approval_approved":       approved,
@@ -513,9 +514,23 @@ func priceOf(t *approval.Ticket) int {
 	return 0
 }
 
+// listTrusts 列出当前 demoUserID 的全部信任授权（v0.1.3 可配置矩阵）。
+func listTrusts(deps *api.Deps) []map[string]any {
+	m, err := deps.Store.Relation.ListTrust(context.Background(), demoUserID)
+	if err != nil {
+		return []map[string]any{}
+	}
+	out := make([]map[string]any, 0, len(m))
+	for targetID, lv := range m {
+		out = append(out, map[string]any{
+			"target_id": targetID, "level": int(lv),
+		})
+	}
+	return out
+}
+
 // listSessions 从内存协商存储列出全部会话（admin 运维台用）。
-func listSessions(deps *api.Deps) []map[string]any {
-	type lister interface{ List() []*negotiation.Session }
+func listSessions(deps *api.Deps) []map[string]any {	type lister interface{ List() []*negotiation.Session }
 	ls, ok := deps.Store.Negotiation.(lister)
 	if !ok {
 		return []map[string]any{}
