@@ -6,7 +6,7 @@
 ![version](https://img.shields.io/badge/version-0.4.0-orange)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-> 让每个人都像大老板一样，拥有自己的 Agent 秘书/助理/管家团队，管理日常与杂碎事务，
+> 让每个人都拥有自己的专属 Agent 秘书/助理/管家团队，管理日常与杂碎事务，
 > 专注于自我提升、家庭生活与工作事业。人机混合 IM：Agent 承担协调/预约/确认的"行政层"，
 > 人只处理情感层与最终决策层。
 
