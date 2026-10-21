@@ -3,6 +3,27 @@
 本文件记录 Go 单二进制路线（cmd/demo + Flutter 客户端 + deploy/）的版本演进。
 Node.js 主线（services/ + apps/im-live）见 README 与 docs/。
 
+## v0.4.1 (2026-10-21)
+
+### Release
+- CI workflow 上线（Go build/vet/test + Node core package）
+- 新建 `docs/RELEASE.md` 发布 SOP（10 节全流程）
+- 版本号统一升级到 v0.4.1
+
+### Not Included
+- 未包含 npm 实际发布（token 权限不足，待用户配置 Publish token）
+- 未包含 GitHub Release 自动创建（待 Stable 审批）
+
+### Known Limits
+- packages/core 本地完整但未发布到 npm registry
+- CI 徽章首次跑需要等待 GitHub Actions 触发
+
+### Verification
+- `make build` ✅
+- `make vet` ✅
+- `make gotest` ✅（store 5.6s race 干净）
+- 冒烟 `/healthz` 返回 `version:"v0.4.1"`
+
 ## v0.4.0 (2026-10-21)
 
 ### Release
