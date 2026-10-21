@@ -3,6 +3,13 @@
 本文件记录 Go 单二进制路线（cmd/demo + Flutter 客户端 + deploy/）的版本演进。
 Node.js 主线（services/ + apps/im-live）见 README 与 docs/。
 
+## v0.4.0 (2026-10-21)
+
+### Release
+- README 顶部加 CI / npm / platforms / version / license 徽章
+- 版本号统一升级到 v0.4.0（healthz + 客户端版本号）
+- 五方发布&核验入口：npm 0.4.0 / GitHub Release + SHA256SUMS / Packages 0.4.0 / CI / Compat
+
 ## [Unreleased]
 
 ## v0.3.7 (2026-10-21)
