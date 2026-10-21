@@ -52,9 +52,28 @@ class ApiClient {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
+  /// v0.1.5：拉取本人当前全部信任授权列表。
+  Future<List<Map<String, dynamic>>> fetchTrusts() async {
+    final r = await http.get(_u('/api/admin/state'));
+    if (r.statusCode != 200) throw Exception('state ${r.statusCode}');
+    final data = jsonDecode(r.body) as Map<String, dynamic>;
+    return (data['trusts'] as List<dynamic>? ?? [])
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+  }
+
+  /// v0.1.5：给指定 targetId 授予 0..4 档信任。
+  Future<void> grantTrust({required int targetId, required int level}) async {
+    final r = await http.post(
+      _u('/api/relation/v1/trust/grant'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'userId': 100, 'targetId': targetId, 'level': level}),
+    );
+    if (r.statusCode != 200) throw Exception('grant ${r.statusCode}: ${r.body}');
+  }
+
   /// 探测后端是否配了 LLM。
-  Future<Map<String, dynamic>> llmStatus() async {
-    try {
+  Future<Map<String, dynamic>> llmStatus() async {    try {
       final r = await http.get(_u('/api/llm/status'));
       if (r.statusCode != 200) return {'ready': false};
       return jsonDecode(r.body) as Map<String, dynamic>;
