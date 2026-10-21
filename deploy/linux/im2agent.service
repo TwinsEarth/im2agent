@@ -1,0 +1,28 @@
+[Unit]
+Description=IM2Agent - AI Native Hybrid Human-Agent IM Platform
+Documentation=https://github.com/TwinsEarth/im2agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=im2agent
+Group=im2agent
+WorkingDirectory=/opt/im2agent
+ExecStart=/opt/im2agent/im2agent -addr :8080
+Restart=always
+RestartSec=3
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/im2agent
+LimitNOFILE=65536
+# 日志到 journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=im2agent
+
+[Install]
+WantedBy=multi-user.target
