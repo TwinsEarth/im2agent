@@ -21,6 +21,11 @@ ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/log/im2agent
 LimitNOFILE=65536
+# v0.3.2：资源限制（防止内存泄漏拖垮整机）
+MemoryLimit=512M
+CPUQuota=1.0
+# v0.3.2：OOM 评分（比系统进程更晚被杀）
+OOMScoreAdjust=-100
 # 日志到 journald
 StandardOutput=journal
 StandardError=journal
