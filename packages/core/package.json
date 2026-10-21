@@ -1,0 +1,33 @@
+{
+  "name": "im2agent-core",
+  "version": "0.4.1",
+  "description": "IM2Agent core types: trust zones, approval states, ledger events for human-agent IM",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "agent",
+    "im",
+    "trust",
+    "approval",
+    "human-agent"
+  ],
+  "author": "TwinsEarth",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TwinsEarth/im2agent.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
