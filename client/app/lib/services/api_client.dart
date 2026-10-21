@@ -24,7 +24,9 @@ class ApiClient {
         .toList();
   }
 
-  /// 对审批单执行动作：approve / reject / decide。
+  /// 对审批单执行动作：approve / reject / modify。
+  ///
+  /// 与后端 v0.0.1 对齐：POST /api/approval/decide，body 为 snake_case。
   Future<Map<String, dynamic>> submitApproval({
     required String ticketId,
     required String action,
@@ -33,9 +35,20 @@ class ApiClient {
     final r = await http.post(
       _u('/api/approval/decide'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'ticketId': ticketId, 'action': action, 'note': note ?? ''}),
+      body: jsonEncode({
+        'ticket_id': ticketId,
+        'decision': action,
+        'note': note ?? '',
+      }),
     );
     if (r.statusCode != 200) throw Exception('decide ${r.statusCode}: ${r.body}');
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+
+  /// 拉取付费账本流水（demo 聚合端点）。
+  Future<Map<String, dynamic>> fetchLedger() async {
+    final r = await http.get(_u('/api/admin/ledger'));
+    if (r.statusCode != 200) throw Exception('ledger ${r.statusCode}');
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
