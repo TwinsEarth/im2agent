@@ -10,6 +10,7 @@ import 'screens/approval_screen.dart';
 import 'screens/conversation_screen.dart';
 import 'screens/ledger_screen.dart';
 import 'screens/overview_screen.dart';
+import 'screens/trust_screen.dart';
 
 void main() {
   runApp(const IM2AgentApp());
@@ -48,6 +49,7 @@ class _HomeShellState extends State<HomeShell> {
       ApprovalScreen(),
       OverviewScreen(),
       LedgerScreen(),
+      TrustScreen(),
       ConversationScreen(),
     ];
     return Scaffold(
@@ -70,6 +72,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.account_balance_wallet_outlined),
             selectedIcon: Icon(Icons.account_balance_wallet),
             label: '账本',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.verified_user_outlined),
+            selectedIcon: Icon(Icons.verified_user),
+            label: '信任',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
