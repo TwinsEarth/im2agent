@@ -4,7 +4,7 @@
 #   docker run -d -p 8080:8080 im2agent:lan
 
 # ---- 构建阶段 ----
-FROM golang:1.23-alpine AS builder
+FROM golang:1.27-alpine AS builder
 WORKDIR /src
 COPY go.mod ./
 # 无 go.sum（纯 stdlib）
