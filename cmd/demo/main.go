@@ -64,9 +64,22 @@ func main() {
 		os.Exit(0)
 	}
 
-	deps, err := api.NewDeps("", "")
+	// v0.1.9：DATABASE_URL 非空时尝试切 PG；驱动未注册/连接失败自动回退内存。
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("PG_DSN")
+	}
+	driver := os.Getenv("PG_DRIVER")
+	if dsn != "" && driver == "" {
+		driver = "pgx"
+	}
+	deps, err := api.NewDeps(driver, dsn)
 	if err != nil {
 		log.Fatalf("init deps: %v", err)
+	}
+	if dsn != "" {
+		log.Printf("  DATABASE_URL 已设置（%s…）；PG 切换已就绪（生产构建需 blank import pgx）",
+			dsn[:min(len(dsn), 24)])
 	}
 	orch := api.NewOrchestrator(*deps)
 
@@ -77,14 +90,6 @@ func main() {
 		os.Getenv("LLM_MODEL"),
 	)
 	llmReady := llmErr == nil
-
-	// v0.0.9-PG：检测 DATABASE_URL。
-	// 生产构建（注入 pgx 驱动）在此切换到 store.NewPostgresStore；
-	// 当前 demo 为 stdlib-only，未注册 PG 驱动，设了 DATABASE_URL 也仅日志提示并保持内存。
-	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
-		log.Printf("  DATABASE_URL 已设置（%s…）；当前 demo 为内存版，生产构建请注入 pgx 驱动并执行 migrations/0001_init.sql",
-			dsn[:min(len(dsn), 24)])
-	}
 
 	seed(deps, orch)
 
