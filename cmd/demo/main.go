@@ -261,7 +261,7 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":  "ok",
 			"app":     "im2agent-demo",
-			"version": "v0.4.0",
+			"version": "v0.4.1",
 		})
 	})
 
