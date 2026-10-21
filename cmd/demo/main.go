@@ -47,6 +47,7 @@ func main() {
 	flag.Parse()
 
 	if *healthcheck {
+		// 从 -addr 推断监听端口（去掉前导冒号）
 		host := strings.TrimPrefix(*addr, ":")
 		if host == "" {
 			host = "8080"
@@ -68,6 +69,7 @@ func main() {
 	}
 	orch := api.NewOrchestrator(*deps)
 
+	// v0.7-llm：从环境变量初始化 OpenAI 兼容客户端（未配置则优雅降级）
 	llmClient, llmErr := llm.New(
 		os.Getenv("OPENAI_BASE_URL"),
 		os.Getenv("OPENAI_API_KEY"),
@@ -79,6 +81,7 @@ func main() {
 
 	top := http.NewServeMux()
 
+	// 业务子服务（StripPrefix 后复用现有 mux）
 	top.Handle("/api/relation/", http.StripPrefix("/api/relation", deps.RelationMux("relation-svc")))
 	top.Handle("/api/payment/", http.StripPrefix("/api/payment", deps.PaymentMux("payment-svc")))
 	top.Handle("/api/approval/", http.StripPrefix("/api/approval", deps.ApprovalMux("approval-engine")))
@@ -87,10 +90,51 @@ func main() {
 	top.Handle("/api/msg/", http.StripPrefix("/api/msg", api.NewMsgMux("msg-svc")))
 	top.Handle("/api/orchestrator/", http.StripPrefix("/api/orchestrator", orch.Mux("agent-orchestrator")))
 
+	// POST /api/approval/decide  清单约定的统一决策入口。
+	// Body: {"ticket_id":"uuid","decision":"approve|reject|modify","note":"...","patch":{...}}
+	top.HandleFunc("POST /api/approval/decide", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TicketID string         `json:"ticket_id"`
+			Decision string         `json:"decision"`
+			Note     string         `json:"note"`
+			Patch    map[string]any `json:"patch"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TicketID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ticket_id required"})
+			return
+		}
+		var t *approval.Ticket
+		var err error
+		switch req.Decision {
+		case "approve":
+			t, err = deps.Engine.Approve(req.TicketID, "user", req.Note)
+		case "reject":
+			t, err = deps.Engine.Reject(req.TicketID, "user", req.Note)
+		case "modify":
+			t, err = deps.Engine.Modify(req.TicketID, req.Patch, "user", req.Note)
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "decision must be approve|reject|modify"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"id": t.ID, "state": string(t.State)})
+	})
+
+	// demo 聚合状态（前端轮询）
 	top.HandleFunc("GET /api/admin/state", func(w http.ResponseWriter, r *http.Request) {
 		all, _ := deps.Store.Approval.All()
 		pending := make([]map[string]any, 0, len(all))
+		tickets := make([]map[string]any, 0, len(all))
 		for _, t := range all {
+			tickets = append(tickets, map[string]any{
+				"id": t.ID, "user_id": t.UserID, "agent_id": t.SourceAgentID,
+				"title": titleOf(t), "context": contextOf(t),
+				"price": priceOf(t), "status": string(t.State),
+				"created_at": t.CreatedAt,
+			})
 			if t.UserID != demoUserID {
 				continue
 			}
@@ -107,13 +151,30 @@ func main() {
 				"createdAt": t.CreatedAt,
 			})
 		}
+		// 账本摘要（对齐清单 ledgers）。
+		ledgerEntries := []map[string]any{}
+		if l, ok := deps.Store.Ledger.(interface{ List() []*ledger.Entry }); ok {
+			for _, e := range l.List() {
+				ledgerEntries = append(ledgerEntries, map[string]any{
+					"message_id":   e.MessageID,
+					"sender_id":    e.SenderID,
+					"receiver_id":  e.ReceiverID,
+					"amount_cents": e.AmountCents,
+					"status":       e.Status.String(),
+				})
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"userId":   demoUserID,
 			"pending":  pending,
-			"serverAt":  time.Now(),
+			"tickets":  tickets,
+			"audits":   auditEntries(deps),
+			"ledgers":  ledgerEntries,
+			"serverAt": time.Now(),
 		})
 	})
 
+	// 健康检查
 	top.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "app": "im2agent-demo"})
 	})
@@ -126,6 +187,8 @@ func main() {
 		log.Printf("  鉴权已启用：/api/admin/* 与 /admin/ 需要 Authorization: Bearer <token>")
 	}
 
+	// ---- 运维界面（v0.4-admin）----
+	// GET /api/admin/agents  Agent 能力注册表
 	top.HandleFunc("GET /api/admin/agents", func(w http.ResponseWriter, r *http.Request) {
 		caps, _ := deps.Store.Capability.ListCapabilities(r.Context())
 		out := make([]map[string]any, 0, len(caps))
@@ -141,6 +204,7 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]any{"agents": out})
 	})
 
+	// GET /api/admin/approvals  全部审批单（含终态）
 	top.HandleFunc("GET /api/admin/approvals", func(w http.ResponseWriter, r *http.Request) {
 		all, _ := deps.Store.Approval.All()
 		out := make([]map[string]any, 0, len(all))
@@ -160,6 +224,7 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]any{"tickets": out})
 	})
 
+	// GET /api/admin/ledger  付费账本全量流水 + 当日用量
 	top.HandleFunc("GET /api/admin/ledger", func(w http.ResponseWriter, r *http.Request) {
 		sent, limit := deps.Store.Ledger.DailyUsage(demoUserID)
 		type entryView struct {
@@ -192,12 +257,15 @@ func main() {
 		})
 	})
 
+	// GET /api/admin/audit  审计事件流
 	top.HandleFunc("GET /api/admin/audit", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"events": auditEntries(deps),
 		})
 	})
 
+	// ---- v0.7-llm 大模型驱动 ----
+	// GET /api/llm/status  前端判断是否要显示"AI 起草"按钮
 	top.HandleFunc("GET /api/llm/status", func(w http.ResponseWriter, r *http.Request) {
 		model := os.Getenv("LLM_MODEL")
 		if model == "" && llmReady {
@@ -210,12 +278,13 @@ func main() {
 		})
 	})
 
+	// POST /api/llm/draft  让 Agent 起草一段回复（无 key 时返回 hardcode 草稿）
 	top.HandleFunc("POST /api/llm/draft", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			StrangerAgent string `json:"strangerAgent"`
 			Category      string `json:"category"`
 			Content       string `json:"content"`
-			Tone          string `json:"tone"`
+			Tone          string `json:"tone"` // polite / brief / decline
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -224,6 +293,7 @@ func main() {
 			tone = "polite"
 		}
 
+		// 无 LLM 配置：返回本地模板草稿（demo 仍可演示）
 		if !llmReady {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"draft": localDraft(body.Category, body.Content, tone),
@@ -261,9 +331,11 @@ func main() {
 		})
 	})
 
+	// 静态前端（挂根子树；/api/... 与 /healthz 由更具体的注册优先匹配）
 	sub, _ := fs.Sub(webFS, "web")
 	top.Handle("/", http.FileServer(http.FS(sub)))
 
+	// 运维界面 /admin/
 	adminSub, _ := fs.Sub(webFS, "web/admin")
 	top.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.FS(adminSub))))
 
@@ -275,9 +347,11 @@ func main() {
 	}
 }
 
+// seed 预置演示数据：能力声明、两条待审卡片。
 func seed(deps *api.Deps, orch *api.Orchestrator) {
 	ctx := context.Background()
 
+	// 1) family-agent：最低信任档位 L1 家庭；采购超 2000 元自动转审批
 	_ = deps.Store.Capability.UpsertCapability(ctx, trustzone.Capability{
 		AgentID:                    "family-agent",
 		TrustLevelMin:              trustzone.LevelFamily,
@@ -285,12 +359,14 @@ func seed(deps *api.Deps, orch *api.Orchestrator) {
 		RequiresApprovalAboveCents: 200000,
 	})
 
+	// 2) property-agent：最低信任档位 L2 信任，物业报修类 Skill
 	_ = deps.Store.Capability.UpsertCapability(ctx, trustzone.Capability{
 		AgentID:       "property-agent",
 		TrustLevelMin: trustzone.LevelTrusted,
 		AllowedSkills: []string{"property-repair", "utility-report"},
 	})
 
+	// 3) 家庭 Agent 发起大额采购审批（2500 元人体工学椅 > 2000 阈值）
 	_, _ = deps.Engine.CreateTicket(demoUserID, "family-agent", approval.TicketPayment,
 		map[string]any{
 			"item":          "人体工学椅（保友金豪 B）",
@@ -302,6 +378,7 @@ func seed(deps *api.Deps, orch *api.Orchestrator) {
 		},
 		time.Now().Add(30*time.Minute))
 
+	// 4) 陌生人付费来意：商务合作，发送即扣费 1 元
 	messageID := id.UUIDv4()
 	_, _ = deps.Store.Ledger.Reserve(messageID, demoUserID, demoUserID, ledger.ModeSendCharge, 100)
 	_, _ = deps.Engine.CreateTicket(demoUserID, "stranger-filter-agent", approval.TicketPayment,
@@ -316,7 +393,7 @@ func seed(deps *api.Deps, orch *api.Orchestrator) {
 		},
 		time.Now().Add(30*time.Minute))
 
-	_ = orch
+	_ = orch // orch 供后续审计/协商端点复用
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -325,6 +402,32 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// titleOf / contextOf / priceOf 从 Payload 取出清单约定字段（缺失时给零值，不报错）。
+func titleOf(t *approval.Ticket) string {
+	if s, ok := t.Payload["title"].(string); ok {
+		return s
+	}
+	return string(t.Type)
+}
+
+func contextOf(t *approval.Ticket) string {
+	if s, ok := t.Payload["context"].(string); ok {
+		return s
+	}
+	return ""
+}
+
+func priceOf(t *approval.Ticket) int {
+	switch v := t.Payload["price"].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	}
+	return 0
+}
+
+// auditEntries 从内存审计 sink 取出全部事件（运维界面用）。
 func auditEntries(deps *api.Deps) []map[string]any {
 	sink, ok := deps.Store.Audit.(*audit.MemorySink)
 	if !ok {
@@ -347,6 +450,7 @@ func auditEntries(deps *api.Deps) []map[string]any {
 }
 
 // withAdminAuth 对 /api/admin/* 和 /admin/ 路径加 Bearer Token 校验。
+// 其他路径（业务 API、healthz、静态前端）保持公开。
 func withAdminAuth(next http.Handler, token string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/admin/") || strings.HasPrefix(r.URL.Path, "/admin/") {
@@ -360,13 +464,14 @@ func withAdminAuth(next http.Handler, token string) http.Handler {
 	})
 }
 
+// localDraft 无 LLM 时的本地模板草稿（demo 降级路径）。
 func localDraft(category, content, tone string) string {
 	switch tone {
 	case "brief":
 		return "你好，收到。请先发一份简短的方案摘要到邮箱，我看完后再约时间。"
 	case "decline":
 		return "你好，目前我们的 IM 一体化方案方向暂不匹配，谢谢联系，祝好。"
-	default:
+	default: // polite
 		return fmt.Sprintf("你好，收到关于「%s」的合作意向。麻烦先简单介绍下你们的产品形态和已落地案例，我评估后再回复是否安排沟通。", category)
 	}
 }
