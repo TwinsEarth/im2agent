@@ -140,3 +140,14 @@ func (m *MemoryNegotiation) LoadSession(_ context.Context, id string) (*negotiat
 	}
 	return s, nil
 }
+
+// List 列出全部会话（admin 运维台用）。
+func (m *MemoryNegotiation) List() []*negotiation.Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*negotiation.Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		out = append(out, s)
+	}
+	return out
+}
