@@ -257,7 +257,12 @@ func main() {
 
 	// 健康检查
 	top.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "app": "im2agent-demo"})
+		// v0.2.9：暴露版本号，便于生产环境巡检
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "ok",
+			"app":     "im2agent-demo",
+			"version": "v0.2.9",
+		})
 	})
 
 	// v0.0.8：SSE 实时事件流（/admin/ 前端 EventSource 接这里，收到事件即时刷新）
