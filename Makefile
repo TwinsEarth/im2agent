@@ -34,6 +34,9 @@ demo: ## 启动极轻量演示（单二进制，内存存储，http://localhost:
 build-linux: ## 交叉编译 Linux amd64 服务器二进制到 dist/im2agent-linux-amd64
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -ldflags "-s -w" -o dist/im2agent-linux-amd64 ./cmd/demo
 
+build-prod: ## v0.3.6：生产构建（含 pgx 驱动，需联网 go get）
+	@bash deploy/prod/build.sh
+
 proto: ## 生成 Protobuf 代码（需 protoc + protoc-gen-go + protoc-gen-go-grpc）
 	@command -v protoc >/dev/null 2>&1 || (echo "protoc 未安装：brew install protobuf"; exit 1)
 	@command -v protoc-gen-go >/dev/null 2>&1 || (echo "安装：go install google.golang.org/protobuf/cmd/protoc-gen-go@latest"; exit 1)
