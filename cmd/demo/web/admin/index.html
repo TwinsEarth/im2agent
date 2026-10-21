@@ -48,7 +48,7 @@
 </head>
 <body>
 <header>
-  <h1>IM2Agent <span>·</span> 运维控制台 <small style="color:#7a8598">v0.4-admin</small></h1>
+  <h1>IM2Agent <span>·</span> 运维控制台 <small style="color:#7a8598">v0.2.1-admin</small></h1>
   <div>
     <a href="/">← 用户演示面</a>
     <span style="margin-left:14px;color:#7a8598" id="tick">--</span>
@@ -94,6 +94,11 @@
   </div>
 
   <div class="card full">
+    <h2>审批流监控（谁 · 何时 · 决定了什么，实时滚动）</h2>
+    <div id="decisions"><div class="empty">等待审批决策…</div></div>
+  </div>
+
+  <div class="card full">
     <h2>付费账本流水（不可变）</h2>
     <table id="ledger">
       <tr><th>Message ID</th><th>发送→接收</th><th>计费模式</th><th>金额(分)</th><th>状态</th><th>审批卡</th><th>扣费时间</th></tr>
@@ -124,6 +129,7 @@ async function refresh() {
     jget('/api/admin/audit'),
   ]);
 
+  // agents
   const ag = agents.agents || [];
   $('agents').innerHTML = '<tr><th>Agent ID</th><th>最低信任档</th><th>Skill 白名单</th><th>单日预算(分)</th><th>超阈值转审批(分)</th></tr>' +
     ag.map(a => `<tr>
@@ -134,6 +140,7 @@ async function refresh() {
       <td>${a.requiresApprovalAboveCents||0}</td>
     </tr>`).join('');
 
+  // tickets
   const tk = tickets.tickets || [];
   $('tickets').innerHTML = '<tr><th>ID</th><th>来自 Agent</th><th>类型</th><th>状态</th><th>关键内容</th><th>创建时间</th><th>事件数</th></tr>' +
     tk.map(t => {
@@ -152,6 +159,7 @@ async function refresh() {
       </tr>`;
     }).join('');
 
+  // ledger
   const le = ledger.entries || [];
   $('ledger').innerHTML = '<tr><th>Message ID</th><th>发送→接收</th><th>计费模式</th><th>金额(分)</th><th>状态</th><th>审批卡</th><th>扣费时间</th></tr>' +
     le.map(e => `<tr>
@@ -164,6 +172,7 @@ async function refresh() {
       <td>${fmtTime(e.chargedAt)}</td>
     </tr>`).join('');
 
+  // audit
   const ev = (audit.events || []).slice().reverse();
   $('events').innerHTML = ev.length
     ? ev.map(e => `<div class="ev ${/deny/i.test(e.decision||'')?'deny':(/approval/i.test(e.action||'')?'approval':'')}">
@@ -173,6 +182,22 @@ async function refresh() {
       </div>`).join('')
     : '<div class="empty">等待事件…</div>';
 
+  // 审批流监控：从审计事件里挑出“人/Agent 对审批单的决策”
+  const decisions = ev.filter(e => /APPROVE|REJECT|MODIFY|CREAT|ESCALATE/i.test(e.action||'') || e.decision);
+  $('decisions').innerHTML = decisions.length
+    ? decisions.slice(0, 30).map(e => {
+        const ok = /APPROV|COMPLETED/i.test(e.decision||'');
+        const bad = /REJECT|DENY/i.test(e.decision||'');
+        const cls = ok ? 'approval' : bad ? 'deny' : '';
+        return `<div class="ev ${cls}">
+          <b>${esc(e.agentId||'system')}</b> · ${fmtTime(e.at)}
+          → <b style="color:${ok?'#7ed6a5':bad?'#ff9a9a':'#ffd47a'}">${esc(e.decision||e.action)}</b>
+          ${e.detail ? '<span class="mono"> '+esc(JSON.stringify(e.detail)).slice(0,100)+'</span>' : ''}
+        </div>`;
+      }).join('')
+    : '<div class="empty">等待审批决策…</div>';
+
+  // stats
   const pendingCount = tk.filter(t => t.state === 'PENDING').length;
   $('sTickets').textContent = tk.length;
   $('sPending').textContent = pendingCount;
