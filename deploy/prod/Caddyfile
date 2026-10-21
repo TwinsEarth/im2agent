@@ -13,6 +13,11 @@
         X-Robots-Tag noindex
     }
 
+    # v0.3.3：限制请求体大小（防止大文件上传攻击）
+    request_body {
+        max_size 1MB
+    }
+
     # 静态前端与业务 API 直连 demo 二进制（127.0.0.1:8080）
     reverse_proxy 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
