@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import 'screens/approval_screen.dart';
 import 'screens/conversation_screen.dart';
+import 'screens/ledger_screen.dart';
 import 'screens/overview_screen.dart';
 
 void main() {
@@ -46,6 +47,7 @@ class _HomeShellState extends State<HomeShell> {
     final pages = const <Widget>[
       ApprovalScreen(),
       OverviewScreen(),
+      LedgerScreen(),
       ConversationScreen(),
     ];
     return Scaffold(
@@ -63,6 +65,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard),
             label: '团队',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.account_balance_wallet_outlined),
+            selectedIcon: Icon(Icons.account_balance_wallet),
+            label: '账本',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
