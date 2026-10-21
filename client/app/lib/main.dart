@@ -19,6 +19,9 @@ void main() {
   runApp(const IM2AgentApp());
 }
 
+/// 客户端版本号（v0.3.0：与后端 /healthz 的 version 对应）
+const String appVersion = 'v0.3.0';
+
 class IM2AgentApp extends StatelessWidget {
   const IM2AgentApp({super.key});
 
@@ -60,7 +63,16 @@ class _HomeShellState extends State<HomeShell> {
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // v0.3.0：底部版本号小字
+          const Padding(
+            padding: EdgeInsets.only(bottom: 2),
+            child: Text(appVersion,
+                style: TextStyle(fontSize: 10, color: Colors.grey)),
+          ),
+          NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
@@ -104,6 +116,8 @@ class _HomeShellState extends State<HomeShell> {
             selectedIcon: Icon(Icons.chat_bubble),
             label: '会话',
           ),
+        ],
+      ),
         ],
       ),
     );
