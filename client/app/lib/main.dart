@@ -11,6 +11,7 @@ import 'screens/audit_screen.dart';
 import 'screens/conversation_screen.dart';
 import 'screens/ledger_screen.dart';
 import 'screens/overview_screen.dart';
+import 'screens/session_screen.dart';
 import 'screens/trust_screen.dart';
 
 void main() {
@@ -52,6 +53,7 @@ class _HomeShellState extends State<HomeShell> {
       LedgerScreen(),
       TrustScreen(),
       AuditScreen(),
+      SessionScreen(),
       ConversationScreen(),
     ];
     return Scaffold(
@@ -84,6 +86,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.lock_outline),
             selectedIcon: Icon(Icons.lock),
             label: '审计',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.hub_outlined),
+            selectedIcon: Icon(Icons.hub),
+            label: '协商',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
