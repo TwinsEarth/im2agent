@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IM2Agent · 极轻量演示</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0b0e14; color: #e6e8ee;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid #1f2632;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
+  header h1 span { color: #4ea1ff; }
+  header .meta { color: #7a8598; font-size: 12px; }
+  main { flex: 1; display: grid; grid-template-columns: 220px 1fr 320px; overflow: hidden; }
+  .pane { overflow-y: auto; padding: 16px; }
+  .pane + .pane { border-left: 1px solid #1f2632; }
+  .session {
+    padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 6px;
+    color: #b8c0cf;
+  }
+  .session:hover { background: #141a26; }
+  .session.active { background: #1a2436; color: #fff; }
+  .session .name { font-weight: 500; margin-bottom: 2px; }
+  .session .preview { font-size: 12px; color: #7a8598; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge {
+    display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px;
+    margin-left: 6px; vertical-align: middle;
+  }
+  .badge.l1 { background: #1e3a5f; color: #7ab8ff; }
+  .badge.l2 { background: #1f3d2e; color: #7ed6a5; }
+  .badge.stranger { background: #3d2418; color: #ffb27a; }
+  .card {
+    background: #141a26; border: 1px solid #232c3d; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .card .from { color: #7a8598; font-size: 12px; margin-bottom: 8px; }
+  .card .title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .card .desc { color: #b8c0cf; line-height: 1.6; margin-bottom: 10px; }
+  .card .amount { color: #ffd47a; font-weight: 600; }
+  .card.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    background: #1f2a3d; color: #e6e8ee; border: 1px solid #2d3a52;
+    padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { background: #27344c; }
+  button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+  button.primary:hover { background: #1d4ed8; }
+  button.danger { background: #3d1f1f; border-color: #5a2a2a; color: #ff9a9a; }
+  button.danger:hover { background: #4d2525; }
+  button.ok { background: #1f3d2e; border-color: #2d5a3d; color: #7ed6a5; }
+  .event {
+    padding: 8px 10px; border-left: 2px solid #2d3a52; margin-bottom: 6px;
+    font-size: 12px; color: #9aa5b8; line-height: 1.5;
+  }
+  .event .who { color: #7ab8ff; }
+  .event.deny { border-color: #ff6b6b; }
+  .event.approval { border-color: #ffd47a; }
+  .state-pill {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 8px;
+    background: #1f2a3d; color: #7a8598;
+  }
+  .state-pill.PENDING { background: #3d2f1a; color: #ffd47a; }
+  .state-pill.APPROVED, .state-pill.COMPLETED { background: #1f3d2e; color: #7ed6a5; }
+  .state-pill.REJECTED { background: #3d1f1f; color: #ff9a9a; }
+  .empty { color: #5a6578; text-align: center; padding: 40px 20px; font-size: 13px; }
+  h2.sec { font-size: 12px; color: #7a8598; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IM2Agent <span>·</span> 人机混合熟人社交 <span>极轻量演示</span></h1>
+  <div class="meta">本人 userID=100 · 家庭 Agent(L1) · 物业 Agent(L2) · 内存存储 · <span id="tick">--:--:--</span></div>
+</header>
+<main>
+  <aside class="pane">
+    <h2 class="sec">会话</h2>
+    <div class="session active">
+      <div class="name">家庭群 <span class="badge l1">L1</span></div>
+      <div class="preview">family-agent：申请更换人体工学椅…</div>
+    </div>
+    <div class="session">
+      <div class="name">物业报修 <span class="badge l2">L2</span></div>
+      <div class="preview">property-agent：5 楼水管已报修</div>
+    </div>
+    <div class="session">
+      <div class="name">陌生人商机 <span class="badge stranger">付费</span></div>
+      <div class="preview">biz-agent：希望就 Agent 接入沟通…</div>
+    </div>
+    <div class="session">
+      <div class="name">审计流</div>
+      <div class="preview">所有门控 / 付费 / 审批决策</div>
+    </div>
+  </aside>
+
+  <section class="pane" id="feed">
+    <h2 class="sec">消息流</h2>
+    <div id="cards"></div>
+    <div class="empty" id="empty">所有审批已处理完毕 ✓</div>
+  </section>
+
+  <aside class="pane">
+    <h2 class="sec">审计流（实时回放）</h2>
+    <div id="events"><div class="empty">等待事件…</div></div>
+  </aside>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmtMoney = c => '¥' + (c/100).toFixed(2);
+const fmtTime = t => new Date(t).toLocaleTimeString('zh-CN', {hour12:false});
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  return { code: r.status, body: j };
+}
+
+function renderCard(t) {
+  const p = t.payload || {};
+  const isStranger = !!p.isStranger;
+  const amount = p.amountCents || p.amount_cents;
+  const actions = isStranger
+    ? `
+      <button class="ok" onclick="decide('${t.id}','approve')">查看并扣费</button>
+      <button class="primary" onclick="decide('${t.id}','reply')">回复并扣费</button>
+      <button class="danger" onclick="decide('${t.id}','reject')">拒绝(不扣费)</button>`
+    : `
+      <button class="primary" onclick="approve('${t.id}')">通过</button>
+      <button onclick="modify('${t.id}')">改价</button>
+      <button class="danger" onclick="reject('${t.id}')">驳回</button>`;
+  return `
+    <div class="card" id="card-${t.id}">
+      <div class="from">来自 ${t.from} · ${t.type} · 截止 ${fmtTime(t.deadline)}
+        <span class="state-pill ${t.state}">${t.state}</span></div>
+      <div class="title">${isStranger ? '陌生人付费来意' : '家庭 Agent 采购申请'}</div>
+      <div class="desc">
+        ${isStranger
+          ? `<b>[${p.category}]</b> ${p.content}<br>发送即扣 <span class="amount">${fmtMoney(amount)}</span>`
+          : `<b>${p.item}</b><br>${p.reason||''}<br>金额 <span class="amount">${fmtMoney(amount)}</span>（阈值 2000.00）`}
+      </div>
+      <div class="actions">${actions}</div>
+    </div>`;
+}
+
+async function refresh() {
+  const { body } = await api('/api/admin/state');
+  const cards = body.pending || [];
+  $('cards').innerHTML = cards.map(renderCard).join('');
+  $('empty').style.display = cards.length ? 'none' : 'block';
+  $('tick').textContent = fmtTime(body.serverAt);
+
+  const ev = await api('/api/orchestrator/v1/audit');
+  const events = (ev.body && ev.body.events) || [];
+  if (events.length) {
+    $('events').innerHTML = events.slice(-30).reverse().map(e => `
+      <div class="event ${e.action && e.action.indexOf('deny')>=0 ? 'deny' : (e.action && e.action.indexOf('approval')>=0 ? 'approval' : '')}">
+        <span class="who">${e.agentId||'system'}</span> · ${fmtTime(e.at)}<br>
+        ${e.action} · ${e.decision}
+      </div>`).join('');
+  }
+}
+
+async function approve(id) {
+  await api(`/api/approval/v1/approvals/${id}/approve`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{"by":"user"}'});
+  await api(`/api/approval/v1/approvals/${id}/complete`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{"by":"family-agent"}'});
+  refresh();
+}
+async function reject(id) {
+  await api(`/api/approval/v1/approvals/${id}/reject`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({by:'user',reason:'预算收紧，下月再买'})});
+  refresh();
+}
+async function modify(id) {
+  const v = prompt('修改金额（分），原金额见卡片', '150000');
+  if (!v) return;
+  await api(`/api/approval/v1/approvals/${id}/modify`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({by:'user',patch:{amountCents:parseInt(v)}})});
+  refresh();
+}
+async function decide(id, decision) {
+  await api(`/api/orchestrator/v1/orchestrator/tickets/${id}/decide`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({by:'user',decision})});
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
