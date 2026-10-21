@@ -79,6 +79,17 @@
     </table>
   </div>
 
+  <div class="card">
+    <h2>Context 飞轮（v0.1.1）</h2>
+    <div class="stat">
+      <div><b id="mApproved">-</b><span>用户已批准</span></div>
+      <div><b id="mRejected">-</b><span>用户驳回（锁定边界）</span></div>
+      <div><b id="mModified">-</b><span>用户代改</span></div>
+      <div><b id="mCharged">-</b><span>陌生人扣费（元）</span></div>
+      <div><b id="mAudit">-</b><span>审计事件总数</span></div>
+    </div>
+  </div>
+
   <div class="card full">
     <h2>Agent 能力注册表（代码层门控的数据源）</h2>
     <table id="agents">
@@ -204,6 +215,13 @@ async function refresh() {
   $('sAgents').textContent = ag.length;
   $('sLedger').textContent = le.length;
   $('sDaily').textContent = `${ledger.dailySent}/${ledger.dailyLimit}`;
+  // v0.1.1：Context 飞轮
+  const m = data.metrics || {};
+  $('mApproved').textContent = m.approval_approved ?? '-';
+  $('mRejected').textContent = m.approval_rejected ?? '-';
+  $('mModified').textContent = m.approval_modified ?? '-';
+  $('mCharged').textContent = ((m.stranger_charged_cents || 0) / 100).toFixed(2);
+  $('mAudit').textContent = m.audit_events_total ?? '-';
   $('tick').textContent = new Date().toLocaleTimeString('zh-CN', {hour12:false});
 }
 
