@@ -2,6 +2,8 @@
 /// 真连后端 /api/admin/state 与 /api/approval/decide。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/approval_ticket.dart';
@@ -20,11 +22,34 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
   List<ApprovalTicket> _tickets = [];
   bool _loading = true;
   String? _error;
+  StreamSubscription? _sseSub;
+  Timer? _pollTimer; // v0.1.4：SSE 断连回退的 5s 轮询
 
   @override
   void initState() {
     super.initState();
     _refresh();
+    // v0.1.4：SSE 事件驱动刷新；断连后 5s 轮询兜底。
+    _startSse();
+  }
+
+  void _startSse() {
+    _sseSub = _client.streamEvents().listen(
+      (_) => _refresh(),
+      onError: (_) => _fallbackPolling(),
+      onDone: _fallbackPolling,
+    );
+  }
+
+  void _fallbackPolling() {
+    _pollTimer ??= Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _sseSub?.cancel();
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
