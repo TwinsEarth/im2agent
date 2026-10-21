@@ -3,6 +3,7 @@
 // 默认内存实现（离线自测/演示，零外部依赖）；
 // 设置环境变量 PG_DSN（以及可选 PG_DRIVER，默认 pgx）时切换 PostgreSQL。
 // 示例：
+//
 //	PG_DRIVER=pgx PG_DSN="postgres://user:pass@host:5432/haim?sslmode=disable" \
 //	  go run ./services/agent-orchestrator
 package api
@@ -19,14 +20,16 @@ import (
 const defaultDailyLedgerLimit = 10
 
 // NewDeps 构建服务依赖。driver/dsn 为空时使用内存实现。
+// v0.1.9：dsn 非空但驱动未注册或连接失败时回退内存并打日志，不阻塞 demo。
 func NewDeps(driver, dsn string) (*Deps, error) {
 	var s *store.Store
 	if dsn != "" {
 		db, err := store.Open(driver, dsn)
 		if err != nil {
-			return nil, err
+			s = store.NewMemoryStore(defaultDailyLedgerLimit)
+		} else {
+			s = store.NewPostgresStore(db, defaultDailyLedgerLimit)
 		}
-		s = store.NewPostgresStore(db, defaultDailyLedgerLimit)
 	} else {
 		s = store.NewMemoryStore(defaultDailyLedgerLimit)
 	}
