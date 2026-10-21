@@ -1,4 +1,8 @@
 # IM2Agent 生产部署版（v0.9-prod）
+#
+# 单机部署：Caddy 自动 HTTPS + im2agent demo 二进制 + 可选 PostgreSQL（v0.2 schema）。
+# 适用：VPS / 云主机 / 家用服务器，域名已解析到服务器公网 IP。
+
 services:
   caddy:
     image: caddy:2-alpine
@@ -18,19 +22,26 @@ services:
       context: ../lan
       dockerfile: Dockerfile
     restart: unless-stopped
+    depends_on:
+      - postgres
     environment:
       ADMIN_TOKEN: ${ADMIN_TOKEN:?请设置强随机 token}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      # v0.2.4：生产切 PG；留空则回退内存
+      DATABASE_URL: ${DATABASE_URL:-}
     expose:
       - "8080"
+    # 不绑外网端口，只对 Caddy 开放
     healthcheck:
       test: ["CMD", "/im2agent", "-healthcheck", "-addr", ":8080"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
+  # 可选：PostgreSQL（v0.2 已建 schema，demo 仍用内存版，生产切这里）
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
