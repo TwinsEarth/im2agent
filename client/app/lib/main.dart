@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'screens/approval_screen.dart';
+import 'screens/audit_screen.dart';
 import 'screens/conversation_screen.dart';
 import 'screens/ledger_screen.dart';
 import 'screens/overview_screen.dart';
@@ -50,6 +51,7 @@ class _HomeShellState extends State<HomeShell> {
       OverviewScreen(),
       LedgerScreen(),
       TrustScreen(),
+      AuditScreen(),
       ConversationScreen(),
     ];
     return Scaffold(
@@ -77,6 +79,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.verified_user_outlined),
             selectedIcon: Icon(Icons.verified_user),
             label: '信任',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.lock_outline),
+            selectedIcon: Icon(Icons.lock),
+            label: '审计',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
