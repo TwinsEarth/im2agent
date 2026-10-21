@@ -430,11 +430,16 @@ func auditEntries(deps *api.Deps) []map[string]any {
 
 // withAdminAuth 对 /api/admin/* 和 /admin/ 路径加 Bearer Token 校验。
 // 其他路径（业务 API、healthz、静态前端）保持公开。
+//
+// 为支持浏览器直接打开运维台，除 Authorization: Bearer <token> 外，
+// 也接受 URL query 上的 ?token=<token>（生产环境建议走 Caddy basic auth 收口）。
 func withAdminAuth(next http.Handler, token string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/admin/") || strings.HasPrefix(r.URL.Path, "/admin/") {
 			auth := r.Header.Get("Authorization")
-			if auth != "Bearer "+token {
+			queryToken := r.URL.Query().Get("token")
+			ok := auth == "Bearer "+token || (queryToken != "" && queryToken == token)
+			if !ok {
 				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 				return
 			}
