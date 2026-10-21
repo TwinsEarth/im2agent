@@ -59,6 +59,18 @@ make proto
 cd client/app && flutter create . --platforms=android,ios,macos,windows,web && flutter run -d macos
 ```
 
+### 极轻量验证原型（v0.3.7 起）
+
+```bash
+# 单二进制 demo（内存存储 + 内嵌网页 + SSE 实时推送）
+make demo
+# 访问 http://localhost:8080/ 用户面，http://localhost:8080/admin/ 运维面
+
+# 生产构建（含 pgx 驱动，需联网）
+make build-prod
+# 产出 dist/im2agent-prod-linux-amd64
+```
+
 > 存储说明：服务默认使用内存存储（`internal/store`，每进程独立，仅用于离线演示），
 > 设 `PG_DSN`（并在运行时注入 `PG_DRIVER` 驱动）后切换 PostgreSQL；仓储代码不 import 具体驱动，
 > 以保持 stdlib-only 离线可编译。
