@@ -91,6 +91,11 @@
   </div>
 
   <div class="card full">
+    <h2>Agent 协商会话（A2A，v0.1.2）</h2>
+    <div id="sessions"></div>
+  </div>
+
+  <div class="card full">
     <h2>Agent 能力注册表（代码层门控的数据源）</h2>
     <table id="agents">
       <tr><th>Agent ID</th><th>最低信任档</th><th>Skill 白名单</th><th>单日预算(分)</th><th>超阈值转审批(分)</th></tr>
@@ -222,6 +227,15 @@ async function refresh() {
   $('mModified').textContent = m.approval_modified ?? '-';
   $('mCharged').textContent = ((m.stranger_charged_cents || 0) / 100).toFixed(2);
   $('mAudit').textContent = m.audit_events_total ?? '-';
+  // v0.1.2：A2A 协商会话
+  const sessEl = $('sessions');
+  const ss = data.sessions || [];
+  sessEl.innerHTML = ss.length
+    ? ss.map(s => `<div style="margin-bottom:10px;padding:8px;border-left:3px solid #8ab4f8;">
+        <b>${s.id}</b> <span class="pill">${s.state}</span> · 轮次 ${s.round}/${s.max_rounds}${s.ticket_id?` · 审批卡 ${s.ticket_id}`:''}
+        <ul style="margin:6px 0 0 18px;padding:0;">${(s.turns||[]).map(t=>`<li style="margin:2px 0;"><b>${t.from}</b> → <b>${t.to}</b> <span class="pill">${t.intent}</span> — ${JSON.stringify(t.payload)}</li>`).join('')}</ul>
+      </div>`).join('')
+    : '<span style="opacity:.6;">暂无协商会话</span>';
   $('tick').textContent = new Date().toLocaleTimeString('zh-CN', {hour12:false});
 }
 
