@@ -9,6 +9,8 @@ Type=simple
 User=im2agent
 Group=im2agent
 WorkingDirectory=/opt/im2agent
+# 可选环境变量文件（ADMIN_TOKEN / OPENAI_* / LLM_MODEL）；文件不存在时不报错
+EnvironmentFile=-/opt/im2agent/.env
 ExecStart=/opt/im2agent/im2agent -addr :8080
 Restart=always
 RestartSec=3
