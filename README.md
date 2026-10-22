@@ -6,196 +6,316 @@
 ![Version](https://img.shields.io/badge/version-v0.9.9-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-> 让每个人都像大老板一样，拥有自己的 Agent 秘书/助理/管家团队，管理日常与杂碎事务，
-> 专注于自我提升、家庭生活与工作事业。人机混合 IM：Agent 承担协调/预约/确认的"行政层"，
-> 人只处理情感层与最终决策层。
+> **Slogan**：让每个人都像大老板一样，拥有自己的 AI 秘书与管家团队。
+>
+> 传统 IM 连接人，人类被海量信息奴役。IM2A 连接 Agent 网络，人类退居幕后，掌握最终裁决权。
+> 这不仅是 IM，更是 AGI 时代个人生活方式的"数字平权"基础设施。
 
-- **文档**：`docs/技术设计基线-v1.0.md`（架构/框架/SDK/协议/开发计划）
-- **协议契约**：`proto/`（9 个 Protobuf，权威协议定义）
-- **代码**：`services/*`（7 个 Go 服务，v0.1 核心机制可运行可自测）
-- **客户端**：`client/app/`（Flutter 骨架：审批态 / 巡视态 / IM 会话）
+---
 
-## 一、核心机制（v0.1 已实现并可自测）
+## 一、产品定位
 
-| # | 机制 | 实现 | 验证 |
-|---|---|---|---|
-| 1 | 消息序号 64 分片锁 + FNV 哈希（§2.3） | `internal/msgseq` | `go run ./services/msg-svc -selftest`（100 用户×100 消息并发无重复无空洞） |
-| 2 | 熟人五档信任矩阵 + Capability 门控（§1.4/§3.3） | `internal/trustzone` | `go run ./services/relation-svc -selftest`（7 个场景：自主/转审/禁止） |
-| 3 | 审批状态机 + 事件溯源 + 超时升级（§7.3） | `internal/approval` | `go run ./services/approval-engine -selftest`（通过/驳回/修改/30min手表/2h短信） |
-| 4 | Agent 协商 8 态状态机 + 轮次熔断（§2.4/§10-R6） | `internal/negotiation` | `go run ./services/negotiation-svc -selftest`（达成/熔断/挂起审批/拒绝） |
-| 5 | 付费消息账本：幂等扣费 + 单日上限（§1.3/§10-R2） | `internal/ledger` | `go run ./services/payment-svc -selftest`（重复回调不二次扣费/退款/日限） |
-| 6 | 合规出口护栏（§8.2） | `services/compliance-gate` | `go run ./services/compliance-gate -selftest`（关键词/手机号/URL 拦截+审计） |
-| 7 | Agent 注册/门控/审批/审计全链路（§3.3） | `services/agent-orchestrator` | `go run ./services/agent-orchestrator -selftest`（旗舰演示） |
+| 维度 | 说明 |
+|---|---|
+| **个人目标** | 把日常杂碎、行政事务、繁琐沟通外包给 Agent 团队，人类专注自我提升、家庭情感、事业创造 |
+| **社会愿景** | 机器承担基础运转与协调劳动，推动人类从"劳动者"向"消费者/指挥者"转换 |
+| **终极使命** | 打破资源壁垒，让普通人以极低成本配备顶级私人法务、家庭医生、资深采购、行政助理 |
 
-## 二、快速开始
+### 三条不可妥协原则
 
-前置：macOS/Linux，Go ≥ 1.21（go.mod 声明 1.27）。本仓库 Go 代码 **stdlib-only**，离线可编译。
+1. **付费永远发生在 Agent 预审之后**——付费不是买通路，是买已被预审过的有效触点
+2. **信任边界是代码层 capability 门控**——不是提示词约束，模型无法绕过（`trustzone.Check`）
+3. **"不上传原始音频"必须可验证**——端侧只做唤醒/意图粗分类/敏感过滤，原始音频不离开设备
 
-```bash
-# 1. 全量关卡：build + vet + go test -race（单元/端到端）+ 7 服务自测
-make test          # 或 make gate
+---
 
-# 仅跑 Go 测试（含竞态检测）
-make gotest
-# 仅跑服务机制自测
-make selftest-all
-
-# 2. 启动单个服务（默认内存存储，零外部依赖；HTTP JSON API）
-go run ./services/agent-orchestrator -port 8080
-curl -s localhost:8080/healthz
-
-# 2b. 启动统一网关（v0.5.0，合并 7 个服务到一个端口）
-make gateway PORT=8080
-curl -s localhost:8080/healthz
-curl -s -X POST localhost:8080/v1/msg/seq -d '{"userId":1}'
-
-# 2c. Context 记忆（v0.6，三层记忆 + 子 Agent 隔离）
-# 注册总 Agent
-curl -s -X POST localhost:8080/v1/memory/master -d '{"userId":1,"masterId":"master"}'
-# 子 Agent 写偏好（语义记忆）
-curl -s -X POST localhost:8080/v1/memory/fact -d '{"userId":1,"agentId":"sub-proc","key":"采购.平台","value":"京东","confidence":0.9}'
-# 总 Agent 读子 Agent 记忆（未授权的子 Agent 互读会 403）
-curl -s 'localhost:8080/v1/memory/cross/facts?callerUserId=1&callerAgent=master&targetUserId=1&targetAgent=sub-proc'
-
-# 3.（可选）切换 PostgreSQL 存储：先起依赖，再注入 PG_DSN
-make up                       # 首次自动执行 deploy/migrations/001_init.sql
-PG_DRIVER=postgres PG_DSN='host=127.0.0.1 user=hai password=hai_dev dbname=hai_platform sslmode=disable' \
-  go run ./services/agent-orchestrator -port 8080
-
-# 4.（可选）生成 Protobuf 代码（需 protoc，见 Makefile proto 目标）
-make proto
-
-# 5. Flutter 客户端
-cd client/app && flutter create . --platforms=android,ios,macos,windows,web && flutter run -d macos
-```
-
-> 存储说明：服务默认使用内存存储（`internal/store`，每进程独立，仅用于离线演示），
-> 设 `PG_DSN`（并在运行时注入 `PG_DRIVER` 驱动）后切换 PostgreSQL；仓储代码不 import 具体驱动，
-> 以保持 stdlib-only 离线可编译。
-
-## 三、总体架构
+## 二、总体架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ L1 接入层      可穿戴(耳机/眼镜 BLE) · 手机 · PC · 手表(Flutter)      │
+│ L1 接入层      耳夹耳机/眼镜(BLE) · 手机 · PC · 手表(审批/摘要) · Web │
 ├─────────────────────────────────────────────────────────────────────┤
-│ L2 边缘/端侧   端侧ASR/意图粗分类 · 敏感过滤 · 离线审批缓存 · BLE网关 │
+│ L2 边缘/端侧   端侧唤醒/意图粗分类 · 敏感前置过滤 · 离线审批缓存       │
+│               原始音频不离开设备（可验证承诺）                        │
 ├─────────────────────────────────────────────────────────────────────┤
-│ L3 IM通信层    腾讯云IM PaaS（长连接/多端同步/离线推送）              │
+│ L3 IM 通信层   腾讯云 IM PaaS · WebSocket 长连接 · 多端同步 · 离线推送 │
 ├─────────────────────────────────────────────────────────────────────┤
-│ L4 Agent编排层 Agent Registry · Skill Runtime · 审批引擎 · 权限门控   │
-│               记忆分层 · 出口护栏 · 协商通道(gRPC, 独立于 IM)         │
+│ L4 Agent 编排层（自研核心资产）                                       │
+│   总Agent(管家) → 子Agent调度(日程/采购/法律/亲子/物业)               │
+│   → 权限门控 TrustZone PreToolUse 代码层强制                         │
+│   → 审批工作流引擎 PENDING→…→COMPLETED/FAILED                       │
+│   → Skill Runtime(MCP) 沙箱+权限清单                                │
+│   → 记忆分层(工作/情景/语义) · 子Agent隔离                           │
+│   → 出口护栏 外发内容必过审                                          │
+│   蒸馏闭环：审批/驳回/修改反馈 → Improvement Memory → 自动收紧阈值   │
 ├─────────────────────────────────────────────────────────────────────┤
 │ L5 模型层      端侧小模型(唤醒/意图/过滤) ←→ 云端大模型(规划/协商)    │
+│               智能路由：置信度≥0.6 端侧直接用，<0.6 转云端             │
 ├─────────────────────────────────────────────────────────────────────┤
-│ L6 数据层      PostgreSQL · pgvector · OpenSearch · Kafka · 时序库    │
+│ L6 数据层      PostgreSQL(pgvector) · OpenSearch · Kafka · 时序库    │
+│               对象存储 WORM 审计                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**三条关键流量分离**：人类 IM 消息走 PaaS 长连接；Agent 间协商走自研 gRPC 通道；
-审批与审计事件走内部消息队列。三条通道不混用（详见技术文档 §2.2）。
+### 三条关键流量分离（核心决策）
 
-## 四、HTTP JSON API 端点清单（v0.2）
-
-服务以 `-port` 启动后暴露以下端点；所有服务均有 `GET /healthz`。
-状态码约定：200 放行/成功，201 已创建，202 需审批（门控），403 门控拒绝，
-409 幂等冲突/非法状态，422 合规/协商熔断，429 超日限，404 未找到。
-
-### relation-svc（信任/门控）
-| 方法 | 路径 | 说明 |
+| 通道 | 机制 | 用途 |
 |---|---|---|
-| POST | `/v1/trust/grant` | 授权 `{userId,targetId,level 0..4}` |
-| GET | `/v1/trust/get?user=&target=` | 查询信任档位 |
-| POST | `/v1/trust/check` | 门控检查（ALLOW 200 / REQUIRE_APPROVAL 202 / DENY 403） |
-| POST | `/v1/agents/capabilities` | 注册/更新 Agent Capability（camelCase：agentId/trustLevelMin/allowedSkills/requiresApprovalAboveCents） |
+| ① 人类 IM 通道 | 腾讯云 IM PaaS · WebSocket | 人与人情感交互、多端同步、离线推送 |
+| ② Agent 协商通道 | 自研 gRPC 双向流 · 8 态 Task 状态机 | Agent 间高频协商，终止时仅注入一张审批卡片 |
+| ③ 审批与审计事件流 | Kafka | 每次工具调用/门控/扣费写事件，可解释性 & 合规追溯 |
 
-### payment-svc（付费账本）
-| 方法 | 路径 | 说明 |
+---
+
+## 三、熟人五档信任矩阵
+
+| 档位 | 自主执行 | 需审批 |
 |---|---|---|
-| POST | `/v1/paid/reserve` | 占位（messageId 可空，服务端生成 UUID） |
-| POST | `/v1/paid/charge` | 扣款（重复回调 409，幂等） |
-| POST | `/v1/paid/refund` | 退款 |
-| GET | `/v1/paid/usage?sender=` | 当日用量/上限 |
-| GET | `/v1/paid/get?messageId=` | 账本条目（status 为 int：0 PENDING / 1 CHARGED / 2 REFUNDED） |
+| L0 本人 | 全部 | — |
+| L1 家庭 | 日程/采购/物业 | 大额/对外承诺 |
+| L2 信任 | 预约/留言 | 第三方信息 |
+| L3 已知 | 接收留言摘要 | 所有对外回复 |
+| L4 陌生 | 仅结构化来意 | 付费后查看 |
 
-### approval-engine（审批）
-| 方法 | 路径 | 说明 |
+---
+
+## 四、陌生人付费注意力经济
+
+```
+① 发送即扣费 → 过滤批量垃圾
+② 回复才扣费 → 高价值触点
+账本不可变 · message_id 幂等 · 单日上限
+```
+
+### 付费消息状态机
+
+```
+pending（reserve 占位）
+  ↓
+charged（billingMode=1 发送即扣）
+  或 delivered（billingMode=2 等待打开）
+  ↓
+opened（接收方打开）
+  或 rejected（拒收 → 自动退款）
+  或 expired（超时未打开 → 自动关闭/退款）
+  或 auto_rejected（接收方偏好自动拒绝）
+```
+
+### 拦截顺序
+
+```
+send 请求
+  ↓
+1. compliance 预审（关键词/手机号/URL）
+2. 接收方定价检查（minCents）
+3. 黑名单检查
+4. 接收方偏好（autoReject / autoAccept）
+5. ledger reserve → charge
+```
+
+---
+
+## 五、核心模块与版本演进
+
+### v0.1-v0.5 基座（已完成）
+
+| 版本 | 模块 | 说明 |
 |---|---|---|
-| POST | `/v1/approvals` | 创建审批单（**201**） |
-| POST | `/v1/approvals/{id}/approve` `/reject` `/modify` `/complete` | 状态迁移（200） |
-| GET | `/v1/approvals/pending?user=` | 待办列表 `{tickets:[]}` |
-| GET | `/v1/approvals/{id}` | 审批单详情 |
-| POST | `/v1/approvals/timeouts` | 超时扫描（30min→watch_push / 2h→sms） |
+| v0.1 | 7 核心机制 | 消息分片锁/信任门控/审批状态机/协商熔断/幂等账本/出口护栏/编排闭环 |
+| v0.2 | 协议契约 | 9 个 Protobuf + PG schema + MCP Skill Runtime + HTTP API |
+| v0.5 | 统一网关 | 认证中间件 + 真实消息存储 + 限流 + 事件总线 |
 
-### negotiation-svc（Agent 协商）
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/v1/negotiations` | 建立协商会话 |
-| POST | `/v1/negotiations/{id}/turns` | 提交一轮（PROPOSE/COUNTER/ACCEPT/REJECT/REQUEST_INFO/REQUEST_AUTH） |
-| POST | `/v1/negotiations/{id}/bind-approval` | 绑定审批单 |
-| GET | `/v1/negotiations/{id}` | 会话状态（轮次/token 熔断 422） |
+### v0.6 记忆基座（Context 飞轮）
 
-### compliance-gate（出口护栏）
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/v1/compliance/check` | `{messageId,content}`；违规返回 422 |
+| 版本 | 功能 |
+|---|---|
+| v0.6 | 三层记忆（Working KV / Episodic 时间线 / Semantic 带置信度）+ 子 Agent 隔离 |
+| v0.6.1 | TTL 惰性过期 + 决策闭环集成 |
+| v0.6.2 | 记忆导出/导入 + 统计 |
+| v0.6.3 | 置信度衰减 + 全局搜索 + 幂等 |
+| v0.6.4 | Fact 强化 + 标签过滤 + GC |
+| v0.6.5 | 事件流 + 快照回滚 |
 
-### msg-svc（消息序号）
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/v1/msg/seq` | `{userId}` → `{seq}`（每用户连续无空洞） |
-| POST | `/v1/msg/seq/batch` | `{userId,n}` → `{seqs,count}` |
-| GET | `/v1/msg/stats` | 分片热度/汇总 |
+### v0.7 蒸馏闭环（自进化）
 
-### agent-orchestrator（编排器 + MCP + 端到端来意）
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/v1/agents/register` | 注册 Agent（meta+cap） |
-| POST | `/v1/gate/check` | 编排器门控（注意与 relation 的 `/v1/trust/check` 不同） |
-| POST | `/v1/stranger/intent` | 陌生人来意：合规→来意规则→协商→占位→审批卡。合规 422；不接受类别 200+REJECTED；接受 **201** PENDING_APPROVAL |
-| POST | `/v1/orchestrator/tickets/{id}/decide` | `{decision: approve/reply/reject}`；发送即扣费 approve 即扣，回复才扣费 reply 才扣 |
-| GET | `/v1/audit` | 审计轨迹回放 |
-| POST | `/mcp` | MCP JSON-RPC（initialize 返回 `protocolVersion=2026-07-28`） |
-| GET | `/mcp/skills` | 已注册 Skill 清单 |
+| 版本 | 功能 |
+|---|---|
+| v0.7.0 | 连续 N 次负反馈或负反馈占比≥30% 自动收紧（只收紧不放宽） |
+| v0.7.1 | 接入门控闭环 |
+| v0.7.2 | 事件溯源与可解释性 |
+| v0.7.3 | 规则参数 Config 化 |
+| v0.7.4 | 用户级导出/导入 |
+| v0.7.5 | 报表 + 记忆联动 |
+| v0.7.6 | 审批卡蒸馏标注 + 批量重置 |
 
-## 五、仓库结构
+### v0.8 L5 模型层
+
+| 版本 | 功能 |
+|---|---|
+| v0.8.0 | Provider 接口（端侧桩 + 云端兼容 + 混合路由） |
+| v0.8.1 | 云端 OpenAI 兼容真实调用 |
+| v0.8.2 | 智能路由（置信度≥0.6 端侧直接用） |
+| v0.8.3 | 模型调用审计事件 |
+| v0.8.4 | 多模型 fallback 链 |
+| v0.8.5 | Per-agent 云端配额（防烧钱） |
+| v0.8.6 | 9 个意图域分类扩展 |
+| v0.8.7 | 热切换云端配置 |
+
+### v0.9 陌生人付费经济（当前）
+
+| 版本 | 功能 |
+|---|---|
+| v0.9.0 | 付费消息端到端闭环 |
+| v0.9.1 | 用户自主定价 + 拒收退款 |
+| v0.9.2 | 收件箱/已发列表/内容查看 |
+| v0.9.3 | 付费统计 dashboard |
+| v0.9.4 | 付费消息黑名单 |
+| v0.9.5 | 消息过期（超时自动关闭） |
+| v0.9.6 | 按状态过滤查询 |
+| v0.9.7 | 批量导出（对账用） |
+| v0.9.8 | 接收方偏好（自动接受/自动拒绝） |
+
+---
+
+## 六、HTTP API 端点清单
+
+### 统一网关（`/v1/` 前缀）
+
+| 模块 | 方法 | 路径 | 说明 |
+|---|---|---|---|
+| **信任** | POST | `/v1/trust/grant` | 授权 `{userId,targetId,level 0..4}` |
+| | GET | `/v1/trust/get?user=&target=` | 查询信任档位 |
+| | POST | `/v1/trust/check` | 门控检查（ALLOW/REQUIRE_APPROVAL/DENY） |
+| **Agent** | POST | `/v1/agents/register` | 注册 Agent |
+| | POST | `/v1/agents/capabilities` | 注册 Capability |
+| **审批** | POST | `/v1/approvals` | 创建审批单 |
+| | POST | `/v1/approvals/{id}/approve` `/reject` `/modify` | 状态迁移 |
+| | GET | `/v1/approvals/pending?user=` | 待办列表 |
+| **协商** | POST | `/v1/negotiations` | 建立协商会话 |
+| | POST | `/v1/negotiations/{id}/turns` | 提交一轮 |
+| **消息** | POST | `/v1/msg/seq` | `{userId}` → `{seq}` |
+| | POST | `/v1/msg/seq/batch` | `{userId,n}` → `{seqs}` |
+| **合规** | POST | `/v1/compliance/check` | `{messageId,content}` |
+| **编排** | POST | `/v1/gate/check` | 编排器门控 |
+| | POST | `/v1/stranger/intent` | 陌生人来意预审 |
+| | POST | `/v1/orchestrator/tickets/{id}/decide` | 审批决策 |
+| **审计** | GET | `/v1/audit` | 审计轨迹回放 |
+| **MCP** | POST | `/mcp` | MCP JSON-RPC |
+| | GET | `/mcp/skills` | Skill 清单 |
+| **记忆** | POST | `/v1/memory/master` | 注册总 Agent |
+| | POST | `/v1/memory/fact` | 写语义记忆 |
+| | GET | `/v1/memory/cross/facts` | 跨子 Agent 读取 |
+| **蒸馏** | GET | `/v1/distill/stats` | 蒸馏统计 |
+| | POST | `/v1/distill/feedback` | 手动反馈 |
+| **模型** | POST | `/v1/model/chat` | 智能路由对话 |
+| | GET | `/v1/model/info` | 模型信息 |
+| | GET | `/v1/model/stats` | 调用统计 |
+| | GET | `/v1/model/quota` | 云端配额 |
+| | POST | `/v1/model/cloud` | 热切换云端 |
+| **付费消息** | POST | `/v1/paidflow/send` | 发送付费消息 |
+| | POST | `/v1/paidflow/open` | 打开消息 |
+| | POST | `/v1/paidflow/price` | 设置最低定价 |
+| | POST | `/v1/paidflow/reject` | 拒收并退款 |
+| | GET | `/v1/paidflow/inbox?receiverId=&status=` | 收件箱 |
+| | GET | `/v1/paidflow/outbox?senderId=&status=` | 已发列表 |
+| | GET | `/v1/paidflow/content?messageId=` | 查看内容 |
+| | GET | `/v1/paidflow/stats?userId=` | 统计 dashboard |
+| | POST | `/v1/paidflow/block` | 拉黑发送方 |
+| | POST | `/v1/paidflow/unblock` | 解除拉黑 |
+| | POST | `/v1/paidflow/expire` | 过期清理 |
+| | GET | `/v1/paidflow/export?userId=&role=` | 批量导出 |
+| | POST | `/v1/paidflow/preferences` | 接收方偏好 |
+
+---
+
+## 七、快速开始
+
+前置：macOS/Linux，Go ≥ 1.21。本仓库 Go 代码 **stdlib-only**，离线可编译。
+
+```bash
+# 全量关卡：build + vet + go test -race + 7 服务自测
+make gate
+
+# 启动统一网关
+make gateway PORT=8080
+curl -s localhost:8080/healthz
+
+# 付费消息示例
+curl -s -X POST localhost:8080/v1/paidflow/send \
+  -d '{"senderId":100,"receiverId":200,"content":"hello","billingMode":1,"amountCents":100}'
+
+# 模型对话（端侧桩，无 key 自动回退）
+curl -s -X POST localhost:8080/v1/model/chat \
+  -d '{"messages":[{"role":"user","content":"今天天气怎么样"}]}'
+
+# Flutter 客户端
+cd client/app && flutter create . && flutter run
+```
+
+环境变量：
+- `GATEWAY_TOKEN`：Bearer 认证（空=跳过）
+- `PG_DSN`/`PG_DRIVER`：PostgreSQL 连接（空=内存存储）
+- `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`：云端模型（空=回退端侧桩）
+
+---
+
+## 八、仓库结构
 
 ```
 human-agent-im/
-├── docs/技术设计基线-v1.0.md     # 技术文档（架构/框架/SDK/协议/开发计划）
-├── docs/交付物清单-v1.0.md / v1.1.md
-├── proto/                        # Protobuf 协议契约（9 个）
-│   ├── common/relation/agent/approval/negotiation/payment/msg/auth/user
-├── internal/                     # 核心逻辑库（服务共享）
-│   ├── msgseq/   trustzone/   approval/   negotiation/   ledger/   audit/   config/
-│   ├── id/            # UUIDv4（crypto/rand）
-│   ├── store/         # 仓储接口 + 内存/PostgreSQL 双实现（driver 运行时注入）
-│   ├── skillruntime/  # MCP 无状态 JSON-RPC Skill Runtime + 权限门控
-│   ├── compliance/    # 出口护栏（关键词/手机号/URL）
-│   └── api/           # 七个服务的 HTTP JSON handler + bootstrap
-├── services/                     # 7 个服务入口（-selftest 自测 / -port HTTP）
-│   ├── agent-orchestrator/       # 总Agent路由 + 权限门控 + 审批闭环（核心）
-│   ├── approval-engine/ negotiation-svc/ relation-svc/
-│   ├── payment-svc/  msg-svc/  compliance-gate/
+├── docs/                        # 技术文档
+│   ├── 技术设计基线-v1.0.md     # 架构/协议/开发计划
+│   ├── 技术设计基线-v2.0-后续版本规划.md
+│   └── 版本路线图-v0.6-v1.0.html
+├── proto/                       # 9 个 Protobuf 协议契约
+├── internal/                    # 核心逻辑库
+│   ├── msgseq/  trustzone/  approval/  negotiation/  ledger/
+│   ├── audit/   config/     id/       store/       skillruntime/
+│   ├── compliance/           # 出口护栏
+│   ├── memory/                # 三层记忆（v0.6）
+│   ├── distill/               # 蒸馏闭环（v0.7）
+│   ├── model/                 # 模型抽象层（v0.8）
+│   └── api/                   # HTTP handler + bootstrap
+├── services/                   # 8 个服务入口
+│   ├── gateway/               # 统一网关（v0.5）
+│   ├── agent-orchestrator/    # 编排器（核心）
+│   ├── approval-engine/
+│   ├── negotiation-svc/
+│   ├── relation-svc/
+│   ├── payment-svc/
+│   ├── msg-svc/
+│   └── compliance-gate/
 ├── deploy/
-│   ├── docker-compose.yml        # postgres/redis/kafka/etcd/opensearch
-│   └── migrations/001_init.sql   # 七组核心表+事件表（compose 首次初始化自动执行）
-├── client/app/                   # Flutter 客户端（审批态/巡视态/IM 会话）
-├── Makefile                      # build/vet/gotest/selftest-all/test(gate)/proto/up/down
-└── go.mod                        # Go 模块（stdlib-only）
+│   ├── docker-compose.yml      # postgres/redis/kafka/etcd/opensearch
+│   └── migrations/001_init.sql
+├── client/app/                  # Flutter 客户端
+├── .github/workflows/ci.yml    # GitHub Actions
+├── Makefile
+└── go.mod
 ```
 
-## 六、开发路线（详见文档 §9）
+---
 
-| 阶段 | 周期 | 核心交付 |
+## 九、开发路线（v0.6 → v1.0）
+
+| 里程碑 | 版本 | 核心交付 |
 |---|---|---|
-| Phase 0（当前 v0.1→v0.2） | 0—4 月 | 合规申报 + 最小 Agent 闭环（审批态/巡视态）；Go-Zero 骨架；腾讯云 IM 接入；存储双实现 + HTTP API + MCP Runtime |
-| Phase 1 | 4—9 月 | 付费消息 + 熟人五档权限 + 耳夹式硬件首发 + 手表审批 |
-| Phase 2 | 9—18 月 | 子 Agent 扩展 + 眼镜形态 + 蒸馏体系 + Skill 生态 |
-| Phase 3 | 18 月+ | A2A 边界网关 + 个人 Agent 协作网络 |
+| **M1 活大脑** | v0.6-v0.8 | 记忆基座 + 蒸馏闭环 + 模型抽象层 |
+| **M2 闭环经济** | v0.9-v0.10 | 陌生人付费（当前）+ 协商双向流实跑 |
+| **M3 生产化** | v0.11-v0.12 | PG+向量+Kafka 生产化 + 腾讯云 IM 接入 |
+| **M4 全端** | v0.13-v0.15 | Flutter 全端（手机/PC/手表/Web） |
+| **M5 GA** | v1.0 | 本地加密 + Context 可导出 + 正式发布 |
 
-## 七、三条不可妥协的产品原则
+---
 
-1. **付费永远发生在 Agent 预审之后**——付费不是买通路，是买已被预审过的有效触点。
-2. **信任边界是代码层 capability 门控**——不是提示词约束，模型无法绕过（`trustzone.Check`）。
-3. **"不上传原始音频"必须可验证**——端侧只做唤醒/意图粗分类/敏感过滤，原始音频不离开设备。
+## 十、护城河
+
+| 壁垒 | 说明 |
+|---|---|
+| **Context 飞轮** | 世界上没有 Personal Agent，只有 Context + Agent。积累的人类纠错记录、授权边界、办事习惯是核心资产，迁移成本极高 |
+| **技术领先** | 大模型泛化能力 + 代码级零信任网络，攻克 Agent 越权、API 安全调用、云端/本地记忆分层 |
+| **关系网网络效应** | 一旦熟人、同事、家人都在使用，他们的 Agent 已建立高频协作默契（如管家知道对方助理周四下午只接受商务会谈） |
+
+---
+
+**v0.9.9 已交付**：7 服务自测全 PASS + 付费经济 9 个小版本完整闭环。
