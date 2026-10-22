@@ -6,7 +6,7 @@
 ![Version](https://img.shields.io/badge/version-v0.9.9-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-> **Slogan**：让每个人都像大老板一样，拥有自己的 AI 秘书与管家团队。
+> **Slogan**：让每个人都拥有自己专属的 AI 秘书、助理与管家团队。
 >
 > 传统 IM 连接人，人类被海量信息奴役。IM2A 连接 Agent 网络，人类退居幕后，掌握最终裁决权。
 > 这不仅是 IM，更是 AGI 时代个人生活方式的"数字平权"基础设施。
