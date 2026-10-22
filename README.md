@@ -1,5 +1,11 @@
 # human-agent-im · AI 人机混合熟人社交 IM 平台
 
+![CI](https://github.com/TwinsEarth/im2agent/actions/workflows/ci.yml/badge.svg)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![Flutter](https://img.shields.io/badge/Flutter-SDK-02569B?logo=flutter&logoColor=white)
+![Version](https://img.shields.io/badge/version-v0.9.9-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 > 让每个人都像大老板一样，拥有自己的 Agent 秘书/助理/管家团队，管理日常与杂碎事务，
 > 专注于自我提升、家庭生活与工作事业。人机混合 IM：Agent 承担协调/预约/确认的"行政层"，
 > 人只处理情感层与最终决策层。
