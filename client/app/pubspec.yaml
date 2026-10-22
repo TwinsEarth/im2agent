@@ -1,0 +1,20 @@
+name: human_agent_im
+description: AI 人机混合熟人社交 IM 平台客户端（审批态 / 巡视态 / IM 会话）
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
