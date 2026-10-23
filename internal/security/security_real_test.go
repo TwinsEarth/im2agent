@@ -3,6 +3,7 @@ package security
 import (
 	"context"
 	"database/sql"
+	"io"
 	"fmt"
 	"net/http"
 	"strings"
@@ -130,5 +131,54 @@ func TestV183Classify(t *testing.T) {
 		if got := Classify(code); got != want {
 			t.Errorf("Classify(%d)=%s want %s", code, got, want)
 		}
+	}
+}
+
+func TestV184MaxBody(t *testing.T) {
+	readAll := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			// MaxBytesReader 超限会在 writer 上置 413
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	h := MaxBody(16, readAll) // 16 字节上限，便于构造
+
+	// 1) 显式 ContentLength 超限 → 413（不读 body）
+	big := strings.Repeat("A", 100)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/x", strings.NewReader(big))
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("ContentLength 超限应 413，实际 %d", rec.Code)
+	}
+
+	// 2) 小 body 正常通过
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest("POST", "/v1/x", strings.NewReader("tiny"))
+	h.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("小 body 应 200，实际 %d", rec2.Code)
+	}
+
+	// 3) 无 ContentLength（chunked）的超大 body：MaxBytesReader 兜底，
+	// handler 无法读到超过上限的字节（内存被限制），Read 必然报错。
+	var readErr error
+	var readN int
+	capture := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		readN = len(b)
+		readErr = err
+	})
+	h3 := MaxBody(16, capture)
+	req3 := httptest.NewRequest("POST", "/v1/x", strings.NewReader(big))
+	req3.ContentLength = -1 // 模拟 chunked/未知长度
+	h3.ServeHTTP(httptest.NewRecorder(), req3)
+	if readErr == nil {
+		t.Fatalf("chunked 超大 body 读取应返回 MaxBytesError")
+	}
+	if readN > 16 {
+		t.Fatalf("chunked 兜底失败：handler 读到 %d 字节，应 <=16", readN)
 	}
 }
