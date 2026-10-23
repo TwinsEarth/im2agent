@@ -163,6 +163,11 @@ func (d *Deps) IMMux() http.Handler {
 		if d.DB != nil {
 			applyRelationEvent(d.DB, ev)
 		}
+		// v1.7.2: 已读回执 + 群成员变更同步。
+		if d.DB != nil {
+			applyReadReceipt(d.DB, ev)
+			applyGroupMembership(d.DB, ev)
+		}
 		writeJSON(w, 200, map[string]any{
 			"action": "allow", "eventType": ev.CallbackType,
 			"from": ev.FromUserID, "to": ev.ToUserID, "group": ev.GroupID,
@@ -450,4 +455,55 @@ func (d *Deps) upsertRelation(w http.ResponseWriter, r *http.Request) {
 	upsimRelation(d.DB, req.Owner, req.Peer, req.Level, status, "manual")
 	writeJSON(w, 200, map[string]any{"ok": true, "owner": req.Owner, "peer": req.Peer,
 		"level": req.Level, "levelName": trustzone.Level(req.Level).String(), "status": status})
+}
+
+
+// applyReadReceipt v1.7.2：C2C 已读回执真实落 im_read_receipts。
+func applyReadReceipt(db *sql.DB, ev im.WebhookEvent) {
+	if !containsAny(ev.CallbackType, "ReadReport", "ReadReceipt", "Readed", "MsgReaded", "C2C.Read") {
+		return
+	}
+	owner, peer := ev.FromUserID, ev.ToUserID
+	if owner == "" || peer == "" {
+		return
+	}
+	key := ev.MsgKey
+	if key == "" {
+		key = "single"
+	}
+	_, err := db.Exec(`
+INSERT INTO im_read_receipts(owner_id, peer_id, msg_key, source)
+VALUES ($1,$2,$3,'webhook')
+ON CONFLICT (owner_id, peer_id, msg_key) DO UPDATE SET read_at=now()`,
+		owner, peer, key)
+	if err != nil {
+		log.Printf("im_read_receipts upsert %s->%s: %v", owner, peer, err)
+	}
+}
+
+// applyGroupMembership v1.7.2：群成员加/退回调真实同步 im_group_members。
+func applyGroupMembership(db *sql.DB, ev im.WebhookEvent) {
+	if ev.GroupID == "" {
+		return
+	}
+	member := ev.ToUserID
+	if member == "" {
+		member = ev.FromUserID
+	}
+	if member == "" {
+		return
+	}
+	switch {
+	case containsAny(ev.CallbackType, "AddMember", "NewJoin", "JoinGroup", "GroupJoin"):
+		_, err := db.Exec(`INSERT INTO im_group_members(group_id, user_id, role)
+VALUES ($1,$2,'member') ON CONFLICT (group_id, user_id) DO NOTHING`, ev.GroupID, member)
+		if err != nil {
+			log.Printf("group add member %s/%s: %v", ev.GroupID, member, err)
+		}
+	case containsAny(ev.CallbackType, "DeleteMember", "QuitGroup", "GroupQuit", "RemoveMember"):
+		_, err := db.Exec(`DELETE FROM im_group_members WHERE group_id=$1 AND user_id=$2`, ev.GroupID, member)
+		if err != nil {
+			log.Printf("group delete member %s/%s: %v", ev.GroupID, member, err)
+		}
+	}
 }
