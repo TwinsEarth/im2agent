@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"human-agent-im/internal/push"
 	"human-agent-im/internal/approval"
 	"human-agent-im/internal/distill"
 	"human-agent-im/internal/eventbus"
@@ -33,6 +34,7 @@ type Deps struct {
 	Model   model.Provider      // v0.8：L5 模型层
 	Stream  *stream.Hub
 	DB     *sql.DB
+	PushClient *push.Client // v1.7.4：离线推送 REST 客户端（可注入 fake）
 	agentCaps map[string]agentCap
 }
 

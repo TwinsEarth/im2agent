@@ -15,6 +15,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"human-agent-im/internal/push"
 	"human-agent-im/internal/api"
 	"human-agent-im/internal/auth"
 	"human-agent-im/internal/ratelimit"
@@ -116,6 +117,9 @@ func main() {
 		}
 		auth.RequireToken(imH, token).ServeHTTP(w, r)
 	}), 100, 200))
+	// v1.7.4：离线推送管理 API
+	deps.PushClient = &push.Client{BaseURL: os.Getenv("TIM_BASE_URL"), SDKAppID: "1600168829", HTTP: http.DefaultClient}
+	mux.Handle("/v1/push/", wrap(deps.PushMux()))
 	mux.Handle("/v1/intent/", wrap(deps.LLMIntentMux()))
 	mux.Handle("/v1/guard/", wrap(deps.LLMGuardMux()))
 	mux.Handle("/v1/distill/feedback", wrap(deps.LLMDistillMux()))
