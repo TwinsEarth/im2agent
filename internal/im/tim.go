@@ -407,7 +407,8 @@ type timAPIResp struct {
 	ErrorCode    int    `json:"ErrorCode"`
 	ErrorInfo    string `json:"ErrorInfo"`
 	MsgTime      int64  `json:"MsgTime"`
-	MsgKey       string `json:"MsgKey"`
+	MsgKey       string `json:"MsgKey"` // C2C sendmsg 才有
+	MsgSeq       int64  `json:"MsgSeq"` // 群 send_group_msg 返回消息序号
 }
 
 func (c *Client) call(path string, body map[string]any) (*timAPIResp, error) {
@@ -494,8 +495,13 @@ func (c *Client) SendGroup(req GroupSendReq) (*Receipt, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 群消息返回 MsgSeq（整数），没有 C2C 的 MsgKey；用 MsgSeq 作为回执 ID。
+	receiptID := out.MsgKey
+	if receiptID == "" && out.MsgSeq > 0 {
+		receiptID = strconv.FormatInt(out.MsgSeq, 10)
+	}
 	return &Receipt{
-		MsgID: out.MsgKey, MsgKey: out.MsgKey, From: req.From, GroupID: req.GroupID,
+		MsgID: receiptID, MsgKey: out.MsgKey, From: req.From, GroupID: req.GroupID,
 		At: out.MsgTime, Channel: ChannelHumanIM, Mode: c.Mode(),
 	}, nil
 }
@@ -513,6 +519,53 @@ func (c *Client) ImportAccount(identifier string, nick string) error {
 	_, err := c.call("/v4/im_open_login_svc/account_import", map[string]any{
 		"Identifier": identifier,
 		"Nick":       nick,
+	})
+	return err
+}
+
+// CreateGroup 真实建群：/v4/group_open_http_svc/create_group。
+// Type=Private（私有群，邀请制），Owner 为群主，members 为初始成员（自动加入）。
+// 重复创建同 GroupId 腾讯云返回错误，调用方应先幂等判断。
+func (c *Client) CreateGroup(groupID, name, owner string, members []string) error {
+	if groupID == "" || name == "" || owner == "" {
+		return errors.New("groupId/name/owner required")
+	}
+	if !c.Available() {
+		return ErrNotConfigured
+	}
+	memberList := make([]map[string]any, 0, len(members))
+	for _, m := range members {
+		if m != "" && m != owner {
+			memberList = append(memberList, map[string]any{"Member_Account": m})
+		}
+	}
+	_, err := c.call("/v4/group_open_http_svc/create_group", map[string]any{
+		"Type":         "Private",
+		"GroupId":       groupID,
+		"Name":          name,
+		"Owner_Account": owner,
+		"MemberList":    memberList,
+	})
+	return err
+}
+
+// AddGroupMembers 向已有群追加成员：/v4/group_open_http_svc/add_group_member。
+func (c *Client) AddGroupMembers(groupID string, members []string) error {
+	if groupID == "" || len(members) == 0 {
+		return errors.New("groupId/members required")
+	}
+	if !c.Available() {
+		return ErrNotConfigured
+	}
+	list := make([]map[string]any, 0, len(members))
+	for _, m := range members {
+		if m != "" {
+			list = append(list, map[string]any{"Member_Account": m})
+		}
+	}
+	_, err := c.call("/v4/group_open_http_svc/add_group_member", map[string]any{
+		"GroupId":   groupID,
+		"MemberList": list,
 	})
 	return err
 }

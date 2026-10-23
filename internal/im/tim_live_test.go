@@ -57,3 +57,35 @@ func TestLiveImportAndSendC2C(t *testing.T) {
 	}
 	t.Logf("LIVE OK alice->bob MsgKey=%s", rcpt2.MsgKey)
 }
+
+func TestLiveGroupE2E(t *testing.T) {
+	c := liveClient(t)
+	const gid = "im2a_group_1"
+
+	// 建群（幂等：已存在则忽略已存在错误继续）
+	if err := c.CreateGroup(gid, "IM2A 测试群", "administrator", []string{"im2a_alice", "im2a_bob"}); err != nil {
+		t.Logf("CreateGroup note (可能已存在): %v", err)
+	} else {
+		t.Log("CreateGroup OK")
+	}
+
+	// 群主在群里真实发一条
+	r1, err := c.SendGroup(GroupSendReq{GroupID: gid, From: "administrator", Text: "IM2A live group: admin broadcast"})
+	if err != nil {
+		t.Fatalf("SendGroup admin failed: %v", err)
+	}
+	if r1.MsgID == "" {
+		t.Fatal("expected group msg_seq (MsgID), got empty")
+	}
+	t.Logf("LIVE group admin msg_seq=%s", r1.MsgID)
+
+	// 成员 alice 在群里真实回一条
+	r2, err := c.SendGroup(GroupSendReq{GroupID: gid, From: "im2a_alice", Text: "IM2A live group: alice reply"})
+	if err != nil {
+		t.Fatalf("SendGroup alice failed: %v", err)
+	}
+	if r2.MsgID == "" {
+		t.Fatal("expected alice group msg_seq, got empty")
+	}
+	t.Logf("LIVE group alice msg_seq=%s", r2.MsgID)
+}
