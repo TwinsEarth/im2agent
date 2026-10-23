@@ -42,6 +42,10 @@ func TestV173_OfflinePushQueueAndDispatch(t *testing.T) {
 	db := v173DB(t)
 	ctx := context.Background()
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
+	// 测试隔离：清空本测试专属的推送表，避免历史残留任务污染计数断言
+	if _, err := db.Exec(`TRUNCATE im_push_tasks, im_push_credentials`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
 
 	// fake 腾讯云：记录收到的真实出站请求
 	var gotPath, gotBody string
