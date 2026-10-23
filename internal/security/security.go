@@ -71,6 +71,22 @@ func ClientIP(r *http.Request) string {
 	return strings.Trim(host, "[]")
 }
 
+// MaxBody 限制请求体大小，缓解超大 body 内存放大（DoS）。
+// 先按 ContentLength 直接拦截，再用 MaxBytesReader 兜底无 ContentLength 的 chunked 请求。
+func MaxBody(max int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > max {
+			w.Header().Set("Connection", "close")
+			w.WriteHeader(http.StatusRequestEntityTooLarge) // 413
+			return
+		}
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, max)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Headers 统一安全响应头。
 func Headers(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
