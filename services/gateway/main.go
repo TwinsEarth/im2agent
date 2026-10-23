@@ -95,6 +95,7 @@ func main() {
 	mux.Handle("/v1/approvals/", wrap(deps.ApprovalMux("approval-engine")))
 	mux.Handle("/v1/negotiations", wrap(deps.NegotiationMux("negotiation-svc")))
 	mux.Handle("/v1/negotiations/", wrap(deps.NegotiationMux("negotiation-svc")))
+	mux.Handle("/v1/a2a/", wrap(deps.A2AMux()))
 	mux.Handle("/v1/paid/", wrap(deps.PaymentMux("payment-svc")))
 	mux.Handle("/v1/paidflow/", wrap(deps.PaidFlowMux("paid-flow-svc")))
 	mux.Handle("/v1/compliance/", wrap(deps.ComplianceMux("compliance-gate")))
