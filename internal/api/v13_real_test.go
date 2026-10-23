@@ -18,6 +18,7 @@ import (
 func TestV132NegotiationTimeline(t *testing.T) {
 	d := newDBDeps(t)
 	id := fmt.Sprintf("neg-v132-%d", uniqueUID())
+	t.Cleanup(func() { cleanNegotiation(t, d.DB, id) })
 	s := &negotiation.Session{
 		ID: id, State: negotiation.StateCompleted, MaxRounds: 6, Round: 2,
 		TokenUsed: 123, TokenBudget: 100000,
@@ -69,6 +70,7 @@ func TestV133MessageSendList(t *testing.T) {
 	d := newDBDeps(t)
 	uid := uniqueUID()
 	other := uniqueUID() + 1
+	t.Cleanup(func() { cleanMessagesByUsers(t, d.DB, uid, other) })
 	content := fmt.Sprintf("v133 真实消息-%d", uid)
 
 	handler := NewMsgMuxWithStore("test-msg", d.Store.Message)

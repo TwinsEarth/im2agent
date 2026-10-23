@@ -14,7 +14,7 @@ import (
 
 // MemoryRelation 进程内关系链存储。
 type MemoryRelation struct {
-	mu    sync.RWMutex
+	mu     sync.RWMutex
 	grants map[uint64]map[uint64]trustzone.Level // userID -> targetID -> level
 }
 
@@ -71,8 +71,8 @@ func (m *MemoryRelation) ListTrust(_ context.Context, userID uint64) (map[uint64
 
 // MemoryCapability 进程内 Agent 能力存储。
 type MemoryCapability struct {
-	mu    sync.RWMutex
-	caps  map[string]trustzone.Capability
+	mu   sync.RWMutex
+	caps map[string]trustzone.Capability
 }
 
 // NewMemoryCapability 创建内存能力存储。

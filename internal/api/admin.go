@@ -59,7 +59,6 @@ func (d *Deps) adminStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 // v1.7.7：调用量 / 消息 / 付费 / 审批 按天时间序列（默认近 7 天，最多 30）。
 func (d *Deps) adminTimeseries(w http.ResponseWriter, r *http.Request) {
 	days := 7
@@ -173,13 +172,13 @@ func (d *Deps) adminAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type row struct {
-		AgentID            string `json:"agent_id"`
-		OwnerID            int64  `json:"owner_id"`
-		Kind               string `json:"kind"`
-		TrustLevelMin      int    `json:"trust_level_min"`
-		BudgetCentsPerDay  int64  `json:"budget_cents_per_day"`
-		Enabled            bool   `json:"enabled"`
-		UpdatedAt          string `json:"updated_at"`
+		AgentID           string `json:"agent_id"`
+		OwnerID           int64  `json:"owner_id"`
+		Kind              string `json:"kind"`
+		TrustLevelMin     int    `json:"trust_level_min"`
+		BudgetCentsPerDay int64  `json:"budget_cents_per_day"`
+		Enabled           bool   `json:"enabled"`
+		UpdatedAt         string `json:"updated_at"`
 	}
 	list := []row{}
 	for rows.Next() {

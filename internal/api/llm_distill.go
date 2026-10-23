@@ -24,7 +24,10 @@ func (d *Deps) distillFeedback(w http.ResponseWriter, r *http.Request) {
 		Feedback string `json:"feedback"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if req.AgentID == "" { writeErr(w, 400, "agentId required"); return }
+	if req.AgentID == "" {
+		writeErr(w, 400, "agentId required")
+		return
+	}
 
 	prompt := `根据用户审批反馈提炼规则。
 Agent: ` + req.AgentID + `
@@ -49,7 +52,11 @@ thresholdDelta: 正值收紧决策（reject 时通常 0.2-0.5），负值放松�
 	if json.Unmarshal([]byte(resp.Content), &res) != nil {
 		// fallback: 根据决策给默认 delta
 		res.Rule = resp.Content
-		if req.Decision == "reject" { res.ThresholdDelta = 0.3 } else { res.ThresholdDelta = -0.1 }
+		if req.Decision == "reject" {
+			res.ThresholdDelta = 0.3
+		} else {
+			res.ThresholdDelta = -0.1
+		}
 		res.AppliedTo = req.AgentID
 	}
 	if d.DB != nil {

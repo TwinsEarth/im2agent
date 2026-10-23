@@ -9,7 +9,7 @@ import (
 
 func TestTightenOnNegStreak(t *testing.T) {
 	e := New(nil)
-	e.Record(1, "sub-proc", "采购.平台", 0.1) // 通过
+	e.Record(1, "sub-proc", "采购.平台", 0.1)  // 通过
 	e.Record(1, "sub-proc", "采购.平台", -0.2) // 驳回 1
 	if e.RequireApproval("sub-proc", "采购.平台") {
 		t.Fatal("1 次驳回不应收紧")

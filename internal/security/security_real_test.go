@@ -3,12 +3,12 @@ package security
 import (
 	"context"
 	"database/sql"
-	"io"
 	"fmt"
+	"io"
 	"net/http"
-	"strings"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,15 +18,21 @@ import (
 // db 返回连接与唯一前缀；cleanup 用同一前缀保证零残留。
 func db(t *testing.T) (*sql.DB, string) {
 	dsn := os.Getenv("PG_DSN")
-	if dsn == "" { t.Skip("PG_DSN not set") }
+	if dsn == "" {
+		t.Skip("PG_DSN not set")
+	}
 	d, err := sql.Open("pgx", dsn)
-	if err != nil { t.Skipf("open: %v", err) }
+	if err != nil {
+		t.Skipf("open: %v", err)
+	}
 	_, err = d.Exec(`CREATE TABLE IF NOT EXISTS security_events (
 		id BIGSERIAL PRIMARY KEY, occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 		event_type TEXT NOT NULL, method TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '',
 		status_code INT NOT NULL DEFAULT 0, client_ip TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '',
 		user_agent TEXT NOT NULL DEFAULT '', duration_ms BIGINT NOT NULL DEFAULT 0, detail TEXT NOT NULL DEFAULT '')`)
-	if err != nil { t.Skipf("migrate: %v", err) }
+	if err != nil {
+		t.Skipf("migrate: %v", err)
+	}
 	suf := fmt.Sprintf("v183_%d", time.Now().UnixNano())
 	t.Cleanup(func() {
 		if _, err := d.Exec(`DELETE FROM security_events WHERE path LIKE $1`, "/"+suf+"%"); err != nil {
@@ -43,8 +49,8 @@ func TestV183Headers(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	want := map[string]string{
-		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":        "DENY",
+		"X-Content-Type-Options":  "nosniff",
+		"X-Frame-Options":         "DENY",
 		"Content-Security-Policy": "frame-ancestors 'none'",
 	}
 	for k, v := range want {
@@ -109,20 +115,32 @@ func TestV183AuditPersistsAndClassifies(t *testing.T) {
 	if err := d.QueryRow(`SELECT count(*) FROM security_events WHERE path LIKE $1`, "/"+suf+"%").Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 { t.Fatalf("应落库 2 条安全事件，实际 %d", n) }
+	if n != 2 {
+		t.Fatalf("应落库 2 条安全事件，实际 %d", n)
+	}
 
 	// 断言 401 归类 auth_failed，且 XFF 首段取真实 IP
 	var etype, ip string
 	err := d.QueryRow(`SELECT event_type, client_ip FROM security_events WHERE path=$1`, "/"+suf+"/unauth").
 		Scan(&etype, &ip)
-	if err != nil { t.Fatal(err) }
-	if etype != "auth_failed" { t.Fatalf("401 应归类 auth_failed，实际 %s", etype) }
-	if ip != "203.0.113.9" { t.Fatalf("应取 XFF 首段真实 IP，实际 %s", ip) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if etype != "auth_failed" {
+		t.Fatalf("401 应归类 auth_failed，实际 %s", etype)
+	}
+	if ip != "203.0.113.9" {
+		t.Fatalf("应取 XFF 首段真实 IP，实际 %s", ip)
+	}
 
 	// 断言 Service.List 可查
 	list, err := s.List(ctx, "auth_failed", 100)
-	if err != nil { t.Fatal(err) }
-	if len(list) == 0 { t.Fatal("List(auth_failed) 不应为空") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) == 0 {
+		t.Fatal("List(auth_failed) 不应为空")
+	}
 }
 
 func TestV183Classify(t *testing.T) {

@@ -10,32 +10,32 @@ import (
 	"net/http"
 	"time"
 
-	"human-agent-im/internal/push"
+	"database/sql"
 	"human-agent-im/internal/approval"
 	"human-agent-im/internal/distill"
 	"human-agent-im/internal/eventbus"
 	"human-agent-im/internal/memory"
 	"human-agent-im/internal/model"
-	"human-agent-im/internal/stream"
+	"human-agent-im/internal/push"
 	"human-agent-im/internal/skillruntime"
-	"human-agent-im/internal/version"
-	"database/sql"
 	"human-agent-im/internal/store"
+	"human-agent-im/internal/stream"
+	"human-agent-im/internal/version"
 )
 
 // Deps 服务共享依赖（按服务注入需要的子集，未用到的字段可空）。
 type Deps struct {
-	Store   *store.Store
-	Skills  *skillruntime.Runtime
-	Engine  *approval.Engine
-	Memory  *memory.GuardedStore // v0.6：Context 三层记忆（带子 Agent 隔离）
-	Bus     *eventbus.Bus       // v0.6.5：事件总线（记忆变更/审批/门控）
-	Distill *distill.Engine     // v0.7：蒸馏闭环（审批反馈→阈值收紧）
-	Model   model.Provider      // v0.8：L5 模型层
-	Stream  *stream.Hub
-	DB     *sql.DB
+	Store      *store.Store
+	Skills     *skillruntime.Runtime
+	Engine     *approval.Engine
+	Memory     *memory.GuardedStore // v0.6：Context 三层记忆（带子 Agent 隔离）
+	Bus        *eventbus.Bus        // v0.6.5：事件总线（记忆变更/审批/门控）
+	Distill    *distill.Engine      // v0.7：蒸馏闭环（审批反馈→阈值收紧）
+	Model      model.Provider       // v0.8：L5 模型层
+	Stream     *stream.Hub
+	DB         *sql.DB
 	PushClient *push.Client // v1.7.4：离线推送 REST 客户端（可注入 fake）
-	agentCaps map[string]agentCap
+	agentCaps  map[string]agentCap
 }
 
 // agentCap Agent 注册的能力（门控用）。

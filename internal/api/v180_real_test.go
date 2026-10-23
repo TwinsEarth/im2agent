@@ -14,20 +14,15 @@ func TestV180_ContentModeration(t *testing.T) {
 
 	ns := time.Now().UnixNano()
 	suf := strconv.FormatInt(ns, 10)
-	revCode, revWord := "v180_review_"+suf, "v180pend"+strconv.FormatInt(ns,36)
-	blkCode, blkWord := "v180_block_"+suf, "v180badw"+strconv.FormatInt(ns,36)
+	revCode, revWord := "v180_review_"+suf, "v180pend"+strconv.FormatInt(ns, 36)
+	blkCode, blkWord := "v180_block_"+suf, "v180badw"+strconv.FormatInt(ns, 36)
 	refClean, refReview, refBlock, refPhone := "v180ref-clean-"+suf, "v180ref-review-"+suf, "v180ref-block-"+suf, "v180ref-phone-"+suf
 
-	// WORM 审计表测试夹具：临时关触发器，结束清理 audit + queue/rules 并恢复。
-	if _, err := d.DB.Exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`); err != nil {
-		t.Skipf("need superuser: %v", err)
-	}
+	// audit_events append-only：审计行保留不删，按唯一 ref(message_id) 精确断言。
 	t.Cleanup(func() {
 		d.DB.Exec(`DELETE FROM content_moderation_queue WHERE ref LIKE 'v180ref-%'`)
 		d.DB.Exec(`DELETE FROM content_rules WHERE code LIKE 'v180\_%'`)
-		d.DB.Exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`)
-		d.DB.Exec(`DELETE FROM audit_events WHERE message_id LIKE 'v180ref-%'`)
-		d.DB.Exec(`ALTER TABLE audit_events ENABLE TRIGGER USER`)
+		// audit_events append-only：审计行保留不删。
 	})
 
 	// 1. 新建一条 review 规则 + 一条 block 规则

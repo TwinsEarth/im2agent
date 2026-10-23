@@ -19,6 +19,7 @@ func TestV174_PushAdminAPI(t *testing.T) {
 	d := v12Deps(t)
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
 	uid := "v174_" + suf
+	t.Cleanup(func() { cleanPushByUser(t, d.DB, "v174_%") })
 
 	var calledPath, calledBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

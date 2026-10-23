@@ -5,19 +5,23 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"os"
 	"testing"
 	"time"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func v19db(t *testing.T) *sql.DB {
 	dsn := os.Getenv("PG_DSN")
-	if dsn == "" { t.Skip("PG_DSN not set") }
+	if dsn == "" {
+		t.Skip("PG_DSN not set")
+	}
 	d, err := sql.Open("pgx", dsn)
-	if err != nil { t.Skipf("open: %v", err) }
+	if err != nil {
+		t.Skipf("open: %v", err)
+	}
 	suf := fmt.Sprintf("v19_%d", time.Now().UnixNano())
-	t.Cleanup(func() { d.Exec("DELETE FROM im_push_tasks WHERE user_id LIKE '"+suf+"_%'"); d.Close() })
+	t.Cleanup(func() { d.Exec("DELETE FROM im_push_tasks WHERE user_id LIKE '" + suf + "_%'"); d.Close() })
 	return d
 }
 
@@ -56,7 +60,9 @@ func TestV19APNSNotConfiguredAndPayload(t *testing.T) {
 	user := suf + "_u"
 	_, err = d.Exec(`INSERT INTO im_push_tasks(user_id, msg_key, title, body, status, attempts, last_error)
 		VALUES($1,$2,'审批','您有一条待办','sent',1,'')`, user, suf+"_apns")
-	if err != nil { t.Fatalf("落库: %v", err) }
+	if err != nil {
+		t.Fatalf("落库: %v", err)
+	}
 	var status string
 	var attempts int
 	err = d.QueryRow(`SELECT status, attempts FROM im_push_tasks WHERE user_id=$1 AND msg_key=$2`, user, suf+"_apns").Scan(&status, &attempts)

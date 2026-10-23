@@ -7,11 +7,11 @@ import (
 )
 
 type PaidChargeRequest struct {
-	MessageID  string `json:"messageId"`
-	SenderID   string `json:"senderId"`
-	ReceiverID string `json:"receiverId"`
-	AmountCents int64 `json:"amountCents"`
-	Mode       string `json:"mode"` // send / pay_open
+	MessageID   string `json:"messageId"`
+	SenderID    string `json:"senderId"`
+	ReceiverID  string `json:"receiverId"`
+	AmountCents int64  `json:"amountCents"`
+	Mode        string `json:"mode"` // send / pay_open
 }
 
 // paidCharge 发送即扣费。
@@ -81,7 +81,6 @@ func (d *Deps) paidList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"userId": uid, "entries": list, "count": len(list)})
 }
 
-
 // paidOpen v1.5.1: 回复才扣费（pay_open 模式）。
 // 收件人查看消息并回复时，才向发送方扣费。
 func (d *Deps) paidOpen(w http.ResponseWriter, r *http.Request) {
@@ -127,12 +126,17 @@ func (d *Deps) paidOpen(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"messageId": req.MessageID, "charged": true, "mode": "pay_open"})
 }
 
-
 // paidRefund v1.5.3: 退款。
 func (d *Deps) paidRefund(w http.ResponseWriter, r *http.Request) {
-	var req struct { MessageID string `json:"messageId"`; Reason string `json:"reason"` }
+	var req struct {
+		MessageID string `json:"messageId"`
+		Reason    string `json:"reason"`
+	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if req.MessageID == "" { writeErr(w, 400, "messageId required"); return }
+	if req.MessageID == "" {
+		writeErr(w, 400, "messageId required")
+		return
+	}
 	if d.DB != nil {
 		var status string
 		d.DB.QueryRow(`SELECT status FROM payment_ledger_legacy_v09 WHERE message_id=$1`, req.MessageID).Scan(&status)
@@ -141,20 +145,32 @@ func (d *Deps) paidRefund(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, err := d.DB.Exec(`UPDATE payment_ledger_legacy_v09 SET status=$1 WHERE message_id=$2`, "refunded", req.MessageID)
-		if err != nil { writeErr(w, 500, err.Error()); return }
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
 	writeJSON(w, 200, map[string]any{"messageId": req.MessageID, "refunded": true})
 }
 
 // blacklistAdd v1.5.3: 加黑名单。
 func (d *Deps) blacklistAdd(w http.ResponseWriter, r *http.Request) {
-	var req struct { UserID string `json:"userId"`; Reason string `json:"reason"` }
+	var req struct {
+		UserID string `json:"userId"`
+		Reason string `json:"reason"`
+	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if req.UserID == "" { writeErr(w, 400, "userId required"); return }
+	if req.UserID == "" {
+		writeErr(w, 400, "userId required")
+		return
+	}
 	if d.DB != nil {
 		_, err := d.DB.Exec(`INSERT INTO blacklist(user_id, reason) VALUES($1,$2) ON CONFLICT (user_id) DO NOTHING`,
 			req.UserID, req.Reason)
-		if err != nil { writeErr(w, 500, err.Error()); return }
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
 	writeJSON(w, 200, map[string]any{"userId": req.UserID, "blacklisted": true})
 }

@@ -30,10 +30,20 @@ func v10OpenPG(t *testing.T) *sql.DB {
 	return db
 }
 
-func v10Scope() Scope {
+func v10Scope(t *testing.T, db *sql.DB) Scope {
+	t.Helper()
 	uid := uint64(900000000 + time.Now().UnixNano()%99000000)
 	ag := fmt.Sprintf("v10mem_%d", time.Now().UnixNano())
-	return Scope{UserID: uid, AgentID: ag}
+	sc := Scope{UserID: uid, AgentID: ag}
+	// 零残留：真实落库测试结束必须删除本 scope 写入的所有行。
+	t.Cleanup(func() {
+		for _, tb := range []string{"working_memory", "episodes", "facts"} {
+			if _, err := db.Exec(fmt.Sprintf("DELETE FROM %s WHERE user_id=$1 AND agent_id=$2", tb), uid, ag); err != nil {
+				t.Errorf("cleanup %s: %v", tb, err)
+			}
+		}
+	})
+	return sc
 }
 
 // TestPGWorkingMemoryCRUDAndTTL 真实落库：工作记忆写/读/删 + TTL 过期。
@@ -41,7 +51,7 @@ func TestPGWorkingMemoryCRUDAndTTL(t *testing.T) {
 	db := v10OpenPG(t)
 	st := NewPGStore(db)
 	ctx := context.Background()
-	sc := v10Scope()
+	sc := v10Scope(t, db)
 
 	if err := st.PutWorkingWithTTL(ctx, sc, "k1", map[string]any{"x": 1}, 0); err != nil {
 		t.Fatalf("put working: %v", err)
@@ -73,7 +83,7 @@ func TestPGEpisodesTagOnlyFilter(t *testing.T) {
 	db := v10OpenPG(t)
 	st := NewPGStore(db)
 	ctx := context.Background()
-	sc := v10Scope()
+	sc := v10Scope(t, db)
 	ts := time.Now().Unix()
 	eps := []*Episode{
 		{ID: fmt.Sprintf("ep_%d_a", ts), Timestamp: ts, Kind: "task", Summary: "a", Tags: []string{"alpha"}},
@@ -115,7 +125,7 @@ func TestPGFactsSearchAndEmbedding(t *testing.T) {
 	db := v10OpenPG(t)
 	st := NewPGStore(db)
 	ctx := context.Background()
-	sc := v10Scope()
+	sc := v10Scope(t, db)
 	facts := []*Fact{
 		{Key: "coffee", Value: "偏好美式咖啡", Confidence: 0.9, Source: "manual"},
 		{Key: "meeting", Value: "周四下午开会", Confidence: 0.7, Source: "approval"},

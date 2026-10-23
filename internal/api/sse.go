@@ -11,8 +11,8 @@ import (
 
 // SSERepo 内存订阅者。
 type SSERepo struct {
-	mu     sync.Mutex
-	subs   map[string]map[chan string]bool // userId → subscribers
+	mu   sync.Mutex
+	subs map[string]map[chan string]bool // userId → subscribers
 }
 
 func NewSSERepo() *SSERepo {

@@ -238,7 +238,6 @@ func TestNewGroup_Dedup(t *testing.T) {
 	}
 }
 
-
 // TestWebhookEventTencentRealFields 固化腾讯云真实回调字段名归一（防回归）：
 // CallbackCommand->CallbackType、MsgId->MsgKey、MsgBody 数组、指针接收者回写。
 func TestWebhookEventTencentRealFields(t *testing.T) {

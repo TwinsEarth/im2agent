@@ -39,6 +39,8 @@ func TestBusPersistsAuditEvent(t *testing.T) {
 	uid := uint64(900000000 + time.Now().UnixNano()%99000000)
 	ag := fmt.Sprintf("v10audit_%d", time.Now().UnixNano())
 	action := fmt.Sprintf("v10_audit_%d", time.Now().UnixNano())
+	// audit_events 是 append-only WORM（触发器禁止 DELETE/UPDATE），审计行不删除；
+	// ag/action 均为本次唯一标识，测试断言只查自己的行，永久保留属合规预期。
 
 	if err := bus.Publish(context.Background(), &Event{
 		Type:    EventType(action),

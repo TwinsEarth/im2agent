@@ -51,22 +51,22 @@ type Tool struct {
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
 	// 门控元数据（非标准 MCP 扩展，平台侧强制字段）
-	Scope        trustzone.Scope `json:"-"`
-	ReadOnly     bool            `json:"-"`
-	Destructive  bool            `json:"-"`
-	AmountFromArgs string        `json:"-"` // 从 arguments 取金额字段（如 "amountCents"），无则空
+	Scope          trustzone.Scope `json:"-"`
+	ReadOnly       bool            `json:"-"`
+	Destructive    bool            `json:"-"`
+	AmountFromArgs string          `json:"-"` // 从 arguments 取金额字段（如 "amountCents"），无则空
 }
 
 // Manifest Skill 声明式清单（Skill SDK + §3.2）。
 type Manifest struct {
-	SkillID          string          `json:"skill_id"`
-	Version          string          `json:"version"`
-	Name             string          `json:"name"`
-	Description      string          `json:"description"`
-	RequiredCapabilities []string     `json:"required_capabilities"` // 所需数据域
-	FinancialImpact  FinancialImpact `json:"financial_impact"`
-	TrustZoneMin     trustzone.Level `json:"trust_zone_min"`
-	ApprovalPolicy   ApprovalPolicy  `json:"approval_policy"`
+	SkillID              string          `json:"skill_id"`
+	Version              string          `json:"version"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	RequiredCapabilities []string        `json:"required_capabilities"` // 所需数据域
+	FinancialImpact      FinancialImpact `json:"financial_impact"`
+	TrustZoneMin         trustzone.Level `json:"trust_zone_min"`
+	ApprovalPolicy       ApprovalPolicy  `json:"approval_policy"`
 }
 
 // Skill 一个可注册的 Skill（对应一个 MCP Server）。

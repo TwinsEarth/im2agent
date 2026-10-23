@@ -1,7 +1,8 @@
 // msg-svc：消息序号生成服务（§2.3）。
 // 核心：64 分片锁 + FNV 哈希，避免全局互斥锁瓶颈。
 // 运行：go run ./services/msg-svc -selftest   # 自测后退出
-//       go run ./services/msg-svc -port 8081  # 启动 healthz
+//
+//	go run ./services/msg-svc -port 8081  # 启动 healthz
 package main
 
 import (

@@ -38,10 +38,10 @@ func driverRegistered(driver string) bool {
 // database/sql 默认 MaxOpenConns=0（无限制），高并发会打爆 PostgreSQL max_connections，
 // 因此必须显式收敛；数值可在部署环境通过 PG_MAX_OPEN_CONNS 等环境变量覆盖（见 TunePoolFromEnv）。
 const (
-	defaultMaxOpenConns     = 25
-	defaultMaxIdleConns     = 5
-	defaultConnMaxLifetime  = 30 * time.Minute
-	defaultConnMaxIdleTime  = 5 * time.Minute
+	defaultMaxOpenConns    = 25
+	defaultMaxIdleConns    = 5
+	defaultConnMaxLifetime = 30 * time.Minute
+	defaultConnMaxIdleTime = 5 * time.Minute
 )
 
 // Open 打开数据库连接、配置连接池并做一次 Ping。driver 如 "pgx" / "postgres"。

@@ -12,10 +12,10 @@ import (
 
 // IntentResult 预审结果。
 type IntentResult struct {
-	Category string  `json:"category"` // spam/ad/suspicious/normal
-	Reason   string  `json:"reason"`
-	Risk     int     `json:"risk"`     // 0-10
-	Charge   bool    `json:"charge"`   // 是否收费
+	Category string `json:"category"` // spam/ad/suspicious/normal
+	Reason   string `json:"reason"`
+	Risk     int    `json:"risk"`   // 0-10
+	Charge   bool   `json:"charge"` // 是否收费
 }
 
 func (d *Deps) intentPrecheck(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +24,10 @@ func (d *Deps) intentPrecheck(w http.ResponseWriter, r *http.Request) {
 		FromID string `json:"fromId"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if req.Text == "" { writeErr(w, 400, "text required"); return }
+	if req.Text == "" {
+		writeErr(w, 400, "text required")
+		return
+	}
 
 	prompt := `你是陌生人消息预审员。判断来意：
 - spam: 垃圾/广告/诈骗/刷屏

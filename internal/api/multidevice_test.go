@@ -72,6 +72,7 @@ func unique(prefix string) string {
 func TestV150DeviceRegister(t *testing.T) {
 	d := newDBDeps(t)
 	devID := unique("dev")
+	t.Cleanup(func() { cleanDevice(t, d.DB, devID) })
 	w := postJSON(t, d.RegisterDevice, map[string]string{"deviceId": devID, "userId": "alice", "type": "watch"})
 	if w.Code != 200 {
 		t.Fatalf("注册 code=%d body=%s", w.Code, w.Body.String())
@@ -150,6 +151,10 @@ func TestV151WatchApprove(t *testing.T) {
 	if !bytes.Contains(wDecided.Body.Bytes(), []byte(`"escalated":false`)) {
 		t.Fatalf("已决策不应升级: %s", wDecided.Body.String())
 	}
+	t.Cleanup(func() {
+		cleanTicket(t, d.DB, ticket, ticket2, pending)
+		// audit_events append-only：审批审计行保留，靠 ticketId 唯一标识隔离。
+	})
 }
 
 // v1.5.2 离线提交真实入队 + 联网重放过 LWW
@@ -157,9 +162,13 @@ func TestV152OfflineSubmit(t *testing.T) {
 	d := newDBDeps(t)
 	user, ticket := unique("offline-user"), unique("off-tk")
 
-	// 清空该用户历史
-	d.DB.Exec(`DELETE FROM offline_approvals WHERE user_id=$1`, user)
-	d.DB.Exec(`DELETE FROM ticket_state WHERE ticket_id=$1`, ticket)
+	// 零残留：跑后删除本测试写入的离线缓存与权威状态
+	t.Cleanup(func() {
+		if _, err := d.DB.Exec(`DELETE FROM offline_approvals WHERE user_id=$1`, user); err != nil {
+			t.Errorf("cleanup offline_approvals: %v", err)
+		}
+		cleanTicket(t, d.DB, ticket)
+	})
 
 	w := postJSON(t, d.OfflineSubmit, map[string]string{"userId": user, "ticketId": ticket, "decision": "approved"})
 	if w.Code != 200 {
@@ -194,7 +203,7 @@ func TestV152OfflineSubmit(t *testing.T) {
 func TestV153SyncState(t *testing.T) {
 	d := newDBDeps(t)
 	ticket := unique("lww")
-	d.DB.Exec(`DELETE FROM ticket_state WHERE ticket_id=$1`, ticket)
+	t.Cleanup(func() { cleanTicket(t, d.DB, ticket) })
 
 	// 手机 t=1000 approve
 	if w := postJSON(t, d.SyncState, map[string]any{"userId": "alice", "ticketId": ticket, "decision": "approved", "deviceId": "phone", "ts": 1000}); w.Code != 200 {

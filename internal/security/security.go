@@ -34,7 +34,9 @@ func New(db *sql.DB) *Service { return &Service{db: db} }
 
 // RecordEvent 真实落一条安全事件。
 func (s *Service) RecordEvent(ctx context.Context, e *SecurityEvent) error {
-	if s == nil || s.db == nil { return nil }
+	if s == nil || s.db == nil {
+		return nil
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO security_events(event_type,method,path,status_code,client_ip,actor,user_agent,duration_ms,detail)
 		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,

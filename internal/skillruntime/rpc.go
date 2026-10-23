@@ -12,11 +12,11 @@ const (
 
 // JSON-RPC 2.0 错误码（标准 + 平台扩展）。
 const (
-	ErrCodeParse       = -32700
-	ErrCodeInvalidReq  = -32600
+	ErrCodeParse          = -32700
+	ErrCodeInvalidReq     = -32600
 	ErrCodeMethodNotFound = -32601
-	ErrCodeInvalidParams = -32602
-	ErrCodeInternal    = -32603
+	ErrCodeInvalidParams  = -32602
+	ErrCodeInternal       = -32603
 	// 平台扩展：权限门控相关（-32000 ~ -32099 为服务端自定义保留段）
 	ErrCodeGateDenied    = -32001 // 门控拒绝（越权）
 	ErrCodeGateApproval  = -32002 // 需要用户审批（auth-required）
@@ -61,9 +61,9 @@ type ToolsListResult struct {
 // ToolListEntry 对外暴露的工具描述（含门控标注）。
 type ToolListEntry struct {
 	Tool
-	SkillID        string `json:"skillId"`
-	ReadOnlyHint   bool   `json:"readOnlyHint"`
-	DestructiveHint bool  `json:"destructiveHint"`
+	SkillID         string `json:"skillId"`
+	ReadOnlyHint    bool   `json:"readOnlyHint"`
+	DestructiveHint bool   `json:"destructiveHint"`
 }
 
 // CallParams tools/call 参数（含平台侧门控上下文）。
@@ -78,15 +78,15 @@ type CallParams struct {
 type GateContext struct {
 	AgentID     string `json:"agentId"`
 	TrustLevel  int    `json:"trustLevel"`
-	Scope       string `json:"scope"`  // 可空，缺省取工具声明的 Scope
+	Scope       string `json:"scope"` // 可空，缺省取工具声明的 Scope
 	AmountCents int64  `json:"amountCents"`
 }
 
 // CallResult tools/call 结果（含门控状态）。
 type CallResult struct {
-	Status   string          `json:"status"` // OK / REQUIRES_APPROVAL / DENIED
-	Content  []ContentBlock  `json:"content"`
-	Gate     *GateDecision   `json:"gate,omitempty"`
+	Status     string         `json:"status"` // OK / REQUIRES_APPROVAL / DENIED
+	Content    []ContentBlock `json:"content"`
+	Gate       *GateDecision  `json:"gate,omitempty"`
 	Structured map[string]any `json:"structured,omitempty"`
 }
 

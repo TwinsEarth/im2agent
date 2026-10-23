@@ -6,7 +6,7 @@
 ![npm](https://img.shields.io/npm/v/@twinsearth%2Fim2agent?logo=npm&label=npm)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-SDK-02569B?logo=flutter&logoColor=white)
-![Version](https://img.shields.io/badge/version-v1.8.2-blue)
+![Version](https://img.shields.io/badge/version-v1.8.7-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 > **Slogan**：让每个人都拥有自己专属的 AI 秘书、助理与管家团队。
@@ -255,6 +255,11 @@ send 请求
 | v1.8.1 | Agent 通讯录一等公民：对外别名/AttentionLevel/tags/月预算钱包，信任档位继承自 Agent 背后的人 |
 | v1.8.2 | 双层经验库：案例层写入仅限人类审批决策 + 模式层须人类批准才生效；Propose-Commit-Audit 三分离（最终审计裁决归人类） |
 | — | 真实 APNS 推送通道（.p8 JWT，官方 apns2 库，待 Apple 凭据真机投递） |
+| v1.8.3 | 安全合规基线：安全中间件 + 审计落库（security_events）+ 威胁模型框架 |
+| v1.8.4 | STRIDE 威胁建模与修复：强认证、IP 限流、安全响应头、注入防护、越权拦截 |
+| v1.8.5 | 数据脱敏：手机号/金额/地址出端脱敏，审计保留原值（可证明） |
+| v1.8.6 | 等保/个保对齐：合规文档 + 数据主体权利（访问/更正/删除/导出/拒绝自动处理） |
+| v1.8.7 | 渗透测试套件：8 攻击向量真实打公网网关 + 修复闭环 + 渗透报告 |
 ---
 
 ## 六、HTTP API 端点清单
@@ -398,4 +403,6 @@ human-agent-im/
 
 ---
 
-**v1.8.2 已交付**：三条流量分离全链路打通（人类→腾讯云 IM / Agent→A2A 协商 / 审批→审计事件流），PG 真实落库测试全 PASS，运营后台 + 双层经验库 + 真实 APNS 通道就位。
+**v1.8.7 已交付**：三条流量分离全链路打通（人类→腾讯云 IM / Agent→A2A 协商 / 审批→审计事件流），PG 真实落库测试全 PASS，运营后台 + 双层经验库 + 真实 APNS 通道就位；v1.8.3–v1.8.7 补齐安全合规（STRIDE 威胁建模、数据脱敏、个保数据主体权利、8 向量渗透测试）。
+
+**工程质量（本轮全版本审查收口）**：全量 `go test ./...`（注入真实 PG_DSN）27 包全 ok、0 FAIL、0 panic；`make gate`（build/vet/`-race`/7 服务自测）全 PASS；`-race` 无 DATA RACE；所有 real_test 注册 `t.Cleanup`，业务表跑测前后行数完全一致（零残留），`audit_events` 按 WORM 合规设计 append-only（触发器禁删/改，靠唯一标识隔离）。

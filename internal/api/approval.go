@@ -13,11 +13,11 @@ import (
 
 // CreateApprovalRequest 创建审批单。
 type CreateApprovalRequest struct {
-	UserID       uint64         `json:"userId"`
-	SourceAgentID string        `json:"sourceAgentId"`
-	Type         string         `json:"type"` // NEGOTIATION/PAYMENT/SKILL_CALL/EXTERNAL_ACTION
-	Payload      map[string]any `json:"payload"`
-	DeadlineUnix int64          `json:"deadlineUnix"` // 0 用默认 30 分钟
+	UserID        uint64         `json:"userId"`
+	SourceAgentID string         `json:"sourceAgentId"`
+	Type          string         `json:"type"` // NEGOTIATION/PAYMENT/SKILL_CALL/EXTERNAL_ACTION
+	Payload       map[string]any `json:"payload"`
+	DeadlineUnix  int64          `json:"deadlineUnix"` // 0 用默认 30 分钟
 }
 
 // DecideRequest 审批决策。
@@ -176,7 +176,7 @@ func (d *Deps) ApprovalMux(serviceName string) http.Handler {
 		user := r.URL.Query().Get("userId")
 		if user == "" {
 			writeErr(w, 400, "userId required")
-				return
+			return
 		}
 		// v1.2.4：返回所有审批单（不限 PENDING）
 		list, _ := d.Engine.ListPending(0)

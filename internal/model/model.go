@@ -75,13 +75,13 @@ func (s *StubProvider) Chat(_ context.Context, req *ChatRequest) (*ChatResponse,
 	last := req.Messages[len(req.Messages)-1].Content
 	reply, confidence := s.heuristicReply(last)
 	return &ChatResponse{
-		Content:      reply,
-		Model:        s.modelName,
-		UsagePrompt:  len(last) / 4,
+		Content:         reply,
+		Model:           s.modelName,
+		UsagePrompt:     len(last) / 4,
 		UsageCompletion: len(reply) / 4,
-		Duration:     1 * time.Millisecond,
-		Confidence:   confidence,
-		RoutedTo:     "edge",
+		Duration:        1 * time.Millisecond,
+		Confidence:      confidence,
+		RoutedTo:        "edge",
 	}, nil
 }
 
@@ -261,17 +261,17 @@ func isTransientNetErr(err error) bool {
 
 // HybridProvider 端侧优先、云端兜底（L5 架构：端侧小模型 ↔ 云端大模型）。
 type HybridProvider struct {
-	Edge       Provider // 端侧：唤醒/意图/过滤
-	Cloud      Provider // 主云端：规划/推理/专业
-	CloudFb    Provider // v0.8.4：备云端（主云端失败时尝试，可空）
-	bus        ModelEventBus
-	stats      *callStats
-	quota      *cloudQuota // v0.8.5：云端调用配额（防烧钱）
+	Edge    Provider // 端侧：唤醒/意图/过滤
+	Cloud   Provider // 主云端：规划/推理/专业
+	CloudFb Provider // v0.8.4：备云端（主云端失败时尝试，可空）
+	bus     ModelEventBus
+	stats   *callStats
+	quota   *cloudQuota // v0.8.5：云端调用配额（防烧钱）
 }
 
 // cloudQuota 云端调用配额（per-agent 每分钟限制）。
 type cloudQuota struct {
-	perMinute int // 每个 agent 每分钟最多云端调用次数
+	perMinute int                // 每个 agent 每分钟最多云端调用次数
 	calls     map[string][]int64 // agentID → 时间戳列表（Unix秒）
 }
 
@@ -305,8 +305,8 @@ func (q *cloudQuota) allow(agentID string) bool {
 
 // QuotaStatus 配额状态。
 type QuotaStatus struct {
-	PerMinute    int            `json:"perMinute"`
-	AgentUsage   map[string]int `json:"agentUsage"` // agentID → 当前窗口内调用次数
+	PerMinute  int            `json:"perMinute"`
+	AgentUsage map[string]int `json:"agentUsage"` // agentID → 当前窗口内调用次数
 }
 
 // Quota 返回当前配额状态（v0.8.5）。
@@ -431,14 +431,14 @@ func (h *HybridProvider) recordCall(req *ChatRequest, resp *ChatResponse) {
 	}
 	if h.bus != nil {
 		h.bus.PublishModelCall(req.AgentID, map[string]any{
-			"userId":       req.UserID,
-			"agentId":      req.AgentID,
-			"model":        resp.Model,
-			"routedTo":     resp.RoutedTo,
-			"confidence":   resp.Confidence,
-			"promptTok":    resp.UsagePrompt,
+			"userId":        req.UserID,
+			"agentId":       req.AgentID,
+			"model":         resp.Model,
+			"routedTo":      resp.RoutedTo,
+			"confidence":    resp.Confidence,
+			"promptTok":     resp.UsagePrompt,
 			"completionTok": resp.UsageCompletion,
-			"durationMs":   resp.Duration.Milliseconds(),
+			"durationMs":    resp.Duration.Milliseconds(),
 		})
 	}
 }

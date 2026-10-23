@@ -31,6 +31,7 @@ func newEdgeDeps(t *testing.T) *Deps {
 
 func TestV14EdgePipeline_Allow(t *testing.T) {
 	d := newEdgeDeps(t)
+	// audit_events append-only：edge_egress 审计行不删除；报告断言用相对增量（>=2/>=1）。
 	body := `{"text":"帮我打开空调"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/edge/pipeline", strings.NewReader(body))
@@ -50,6 +51,7 @@ func TestV14EdgePipeline_Allow(t *testing.T) {
 
 func TestV14EdgePipeline_BlockPhone(t *testing.T) {
 	d := newEdgeDeps(t)
+	// audit_events append-only：edge_egress 审计行不删除；报告断言用相对增量（>=2/>=1）。
 	// 纯手机号，不含"手机号"字面
 	body := `{"text":"联系我 13812345678 即可"}`
 	rec := httptest.NewRecorder()
@@ -77,6 +79,7 @@ func TestV14EdgePipeline_BlockPhone(t *testing.T) {
 
 func TestV14EgressReport_Persisted(t *testing.T) {
 	d := newEdgeDeps(t)
+	// audit_events append-only：edge_egress 审计行不删除；报告断言用相对增量（>=2/>=1）。
 	// 制造一次 allow、一次 block
 	for _, txt := range []string{"帮我关灯", "我的身份证110101199003071234"} {
 		rec := httptest.NewRecorder()
@@ -94,8 +97,8 @@ func TestV14EgressReport_Persisted(t *testing.T) {
 		t.Fatalf("report status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var rep struct {
-		Total     int `json:"total"`
-		Blocked   int `json:"blocked"`
+		Total      int              `json:"total"`
+		Blocked    int              `json:"blocked"`
 		Violations []map[string]any `json:"violations"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &rep)
@@ -118,4 +121,3 @@ func TestV14EgressReport_Persisted(t *testing.T) {
 		t.Error("audit_events 中应至少有一条 idcard 拦截记录")
 	}
 }
-

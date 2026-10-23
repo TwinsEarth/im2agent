@@ -1,7 +1,8 @@
 // negotiation-svc：Agent 间协商服务（§2.4）。
 // 核心：8 态 Task 状态机；轮次/token 硬性熔断；AUTH_REQUIRED 绑定审批单。
 // 运行：go run ./services/negotiation-svc -selftest
-//       go run ./services/negotiation-svc -port 8084
+//
+//	go run ./services/negotiation-svc -port 8084
 package main
 
 import (

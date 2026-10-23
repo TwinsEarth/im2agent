@@ -88,7 +88,7 @@ func (d *Deps) applyTicketDecision(userID, ticketID, decision, deviceID string, 
 	// LWW：旧时间戳拒绝（含终态保护）
 	if clientTS < curTS {
 		return applyResult{409, map[string]any{
-			"error": "stale write, conflict with newer state",
+			"error":    "stale write, conflict with newer state",
 			"ticketId": ticketID, "serverDecision": curDecision,
 			"serverTs": curTS, "clientTs": clientTS,
 		}}
@@ -131,11 +131,11 @@ func (d *Deps) applyTicketDecision(userID, ticketID, decision, deviceID string, 
 // SyncState POST /v1/sync/state：多端提交决策，走真实 LWW。
 func (d *Deps) SyncState(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		UserID   string `json:"userId"`
-		TicketID string `json:"ticketId"`
-		Decision string `json:"decision"`
-		Timestamp int64 `json:"ts"`
-		DeviceID string `json:"deviceId"`
+		UserID    string `json:"userId"`
+		TicketID  string `json:"ticketId"`
+		Decision  string `json:"decision"`
+		Timestamp int64  `json:"ts"`
+		DeviceID  string `json:"deviceId"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	res := d.applyTicketDecision(req.UserID, req.TicketID, req.Decision, req.DeviceID, req.Timestamp)

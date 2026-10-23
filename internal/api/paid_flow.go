@@ -1,13 +1,14 @@
 // Package api: 陌生人付费消息端到端闭环（v0.9.0）。
 //
 // 流程：
-//   发送方（陌生人）→ compliance 预审 → ledger reserve → charge（发送即扣费，billingMode=1）
-//   接收方打开     → ledger charge（看到才扣费，billingMode=2）
+//
+//	发送方（陌生人）→ compliance 预审 → ledger reserve → charge（发送即扣费，billingMode=1）
+//	接收方打开     → ledger charge（看到才扣费，billingMode=2）
 //
 // 三条不可妥协原则：
-//   1. 付费永远在 Agent 预审之后（compliance 不过不 reserve）
-//   2. 账本不可变 + messageId 幂等
-//   3. 每日上限（ledger 内置）
+//  1. 付费永远在 Agent 预审之后（compliance 不过不 reserve）
+//  2. 账本不可变 + messageId 幂等
+//  3. 每日上限（ledger 内置）
 package api
 
 import (
@@ -23,8 +24,8 @@ import (
 
 // priceConfigStore 接收方对陌生人消息的定价配置（内存，生产换 PG）。
 type priceConfigStore struct {
-	mu    sync.RWMutex
-	cfg   map[uint64]int64 // receiverID → 每封消息最低 cents
+	mu  sync.RWMutex
+	cfg map[uint64]int64 // receiverID → 每封消息最低 cents
 }
 
 func newPriceConfigStore() *priceConfigStore {
@@ -45,14 +46,14 @@ func (s *priceConfigStore) Get(receiverID uint64) int64 {
 
 // paidMessage 付费消息内容（内存，生产换 PG/对象存储）。
 type paidMessage struct {
-	MessageID  string `json:"messageId"`
-	SenderID   uint64 `json:"senderId"`
-	ReceiverID uint64 `json:"receiverId"`
-	Content    string `json:"content"`
-	Status     string `json:"status"` // charged / delivered / rejected / expired
-	AmountCents int64 `json:"amountCents"`
-	BillingMode int    `json:"billingMode"`
-	CreatedAtUnix int64 `json:"createdAtUnix"` // v0.9.5
+	MessageID     string `json:"messageId"`
+	SenderID      uint64 `json:"senderId"`
+	ReceiverID    uint64 `json:"receiverId"`
+	Content       string `json:"content"`
+	Status        string `json:"status"` // charged / delivered / rejected / expired
+	AmountCents   int64  `json:"amountCents"`
+	BillingMode   int    `json:"billingMode"`
+	CreatedAtUnix int64  `json:"createdAtUnix"` // v0.9.5
 }
 
 // paidMessageStore 付费消息内存存储。
@@ -112,7 +113,7 @@ func (s *paidMessageStore) SetStatus(id, status string) {
 
 // blocklistStore 接收方拉黑发送方的名单。
 type blocklistStore struct {
-	mu    sync.RWMutex
+	mu      sync.RWMutex
 	blocked map[uint64]map[uint64]bool // receiverID → senderID → blocked
 }
 
@@ -520,7 +521,7 @@ func (d *Deps) PaidFlowMux(serviceName string) http.Handler {
 			AutoRejectAboveCents: body.AutoRejectAboveCents,
 		})
 		writeJSON(w, http.StatusOK, map[string]any{
-			"receiverId": body.ReceiverID,
+			"receiverId":           body.ReceiverID,
 			"autoAcceptBelowCents": body.AutoAcceptBelowCents,
 			"autoRejectAboveCents": body.AutoRejectAboveCents,
 		})
@@ -628,12 +629,12 @@ func (d *Deps) PaidFlowMux(serviceName string) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"userId":        userID,
-			"sentCount":     sentCount,
-			"sentSpentCents": sentSpent,
-			"sentAvgCents":  avgSent,
-			"rejectedCount": rejectedCount,
-			"receivedCount": receivedCount,
+			"userId":              userID,
+			"sentCount":           sentCount,
+			"sentSpentCents":      sentSpent,
+			"sentAvgCents":        avgSent,
+			"rejectedCount":       rejectedCount,
+			"receivedCount":       receivedCount,
 			"receivedEarnedCents": receivedEarned,
 		})
 	})

@@ -21,10 +21,10 @@ func (d *Deps) PushMux() http.Handler {
 }
 
 type pushCredentialReq struct {
-	UserID       string `json:"user_id"`
-	Platform     string `json:"platform"`
-	CertRef      string `json:"cert_ref"`
-	DeviceToken  string `json:"device_token"`
+	UserID      string `json:"user_id"`
+	Platform    string `json:"platform"`
+	CertRef     string `json:"cert_ref"`
+	DeviceToken string `json:"device_token"`
 }
 
 // upsertPushCredential 真实落 im_push_credentials。
@@ -121,4 +121,3 @@ func (d *Deps) retryPush(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": sent, "attempted": attempted})
 }
-

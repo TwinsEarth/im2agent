@@ -19,14 +19,14 @@ type EventType string
 const (
 	EventTypeGateCheck        EventType = "gate_check"
 	EventTypeApprovalCreate   EventType = "approval_create"
-	EventTypeApprovalDecide  EventType = "approval_decide"
-	EventTypeLedgerCharge    EventType = "ledger_charge"
+	EventTypeApprovalDecide   EventType = "approval_decide"
+	EventTypeLedgerCharge     EventType = "ledger_charge"
 	EventTypeComplianceReject EventType = "compliance_reject"
 
 	// v0.6.5：记忆变更事件（供蒸馏/审计订阅）
-	EventTypeMemoryFactUpsert   EventType = "memory_fact_upsert"
+	EventTypeMemoryFactUpsert    EventType = "memory_fact_upsert"
 	EventTypeMemoryEpisodeAppend EventType = "memory_episode_append"
-	EventTypeMemoryReinforce    EventType = "memory_reinforce"
+	EventTypeMemoryReinforce     EventType = "memory_reinforce"
 
 	// v0.7.2：蒸馏收紧事件（可观测/可审计）
 	EventTypeDistillTighten EventType = "distill_tighten"

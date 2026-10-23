@@ -17,13 +17,13 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"human-agent-im/internal/push"
 	"human-agent-im/internal/api"
 	"human-agent-im/internal/auth"
-	"human-agent-im/internal/ratelimit"
-	"human-agent-im/internal/security"
 	"human-agent-im/internal/masking"
 	"human-agent-im/internal/privacy"
+	"human-agent-im/internal/push"
+	"human-agent-im/internal/ratelimit"
+	"human-agent-im/internal/security"
 	"human-agent-im/internal/version"
 )
 
@@ -168,7 +168,9 @@ func main() {
 	mux.Handle("GET /v1/admin/health", wrap(http.HandlerFunc(deps.AdminHealth)))
 	// v1.7.6：运营后台总入口——仪表盘真实聚合（独立管理员 Token，缺省回退网关 Token）+ 页面
 	adminToken := os.Getenv("IM2A_ADMIN_TOKEN")
-	if adminToken == "" { adminToken = token }
+	if adminToken == "" {
+		adminToken = token
+	}
 	adminH := auth.RequireToken(http.HandlerFunc(deps.AdminMux().ServeHTTP), adminToken)
 	mux.Handle("/v1/admin/", adminH)
 	mux.Handle("GET /v1/admin/security", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

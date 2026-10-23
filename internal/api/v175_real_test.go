@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"net/http/httptest"
-	"time"
 	"strings"
 	"testing"
+	"time"
 )
 
 // v1.7.5：入站 C2C 消息真实镜像落 im_messages；未读数随已读回执归零；历史双向可查。
 func TestV175_InboundMirrorHistoryUnread(t *testing.T) {
 	d := v12Deps(t)
 	suf := fmt.Sprintf("%d", time.Now().Unix())
+	t.Cleanup(func() { cleanIMBySuf(t, d.DB, suf) })
 	from := "v175_from_" + suf
 	to := "v175_to_" + suf
 	mk := "v175_mk_" + suf

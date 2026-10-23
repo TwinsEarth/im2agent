@@ -67,6 +67,7 @@ func TestV161AgentLogNoLeak(t *testing.T) {
 	d := newDBDeps(t)
 	uid := uniqueUID()
 	agent := "leakprobe" + strconv64(time.Now().UnixNano())
+	// audit_events append-only：agent 泄漏探针审计行保留，agent_id 带 leakprobe 唯一标识。
 
 	// 插入一条属于 uid 的真实日志
 	if _, err := d.DB.Exec(`INSERT INTO audit_events(user_id, agent_id, action, decision, detail)
@@ -130,6 +131,10 @@ func TestV164PhoneApproveSync(t *testing.T) {
 	if created.ID == "" {
 		t.Fatalf("未拿到审批单 id")
 	}
+	t.Cleanup(func() {
+		cleanTicket(t, d.DB, created.ID)
+		// audit_events append-only：审批审计行保留，靠 ticketId 唯一标识隔离。
+	})
 
 	// 2) 手机端 approve
 	aresp, err := http.Post(srv.URL+"/v1/approvals/"+created.ID+"/approve", "application/json",

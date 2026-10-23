@@ -1,7 +1,8 @@
 // payment-svc：陌生人付费消息账本服务（§1.3 / §6 / §10-R2）。
 // 核心：不可变账本 + message_id 幂等扣费（重试不二次扣费）+ 单日发送上限。
 // 运行：go run ./services/payment-svc -selftest
-//       go run ./services/payment-svc -port 8085
+//
+//	go run ./services/payment-svc -port 8085
 package main
 
 import (

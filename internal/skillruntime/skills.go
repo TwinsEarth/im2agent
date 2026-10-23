@@ -33,10 +33,10 @@ func NewCalendarSkill() *CalendarSkill {
 func (s *CalendarSkill) Manifest() Manifest {
 	return Manifest{
 		SkillID: "calendar", Version: "0.2.0", Name: "日程",
-		Description:      "查询日程、可用时段",
-		FinancialImpact:  FinancialReadOnly,
-		TrustZoneMin:     trustzone.LevelFamily,
-		ApprovalPolicy:   ApprovalAuto,
+		Description:     "查询日程、可用时段",
+		FinancialImpact: FinancialReadOnly,
+		TrustZoneMin:    trustzone.LevelFamily,
+		ApprovalPolicy:  ApprovalAuto,
 	}
 }
 
@@ -112,7 +112,7 @@ func (s *HomeMaintenanceSkill) Call(_ context.Context, toolName string, args map
 	cat, _ := args["category"].(string)
 	desc, _ := args["description"].(string)
 	order := map[string]any{
-		"orderId": "WO-" + cat + "-demo",
+		"orderId":  "WO-" + cat + "-demo",
 		"category": cat, "description": desc,
 		"status": "submitted", "createdAt": time.Now().Format(time.RFC3339),
 	}

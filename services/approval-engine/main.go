@@ -1,7 +1,8 @@
 // approval-engine：审批工作流引擎服务（§7.3 / §9.2）。
 // 核心：显式状态机 + 事件溯源 + 超时升级（30min 手表推送 / 2h 短信）。
 // 运行：go run ./services/approval-engine -selftest
-//       go run ./services/approval-engine -port 8083
+//
+//	go run ./services/approval-engine -port 8083
 package main
 
 import (

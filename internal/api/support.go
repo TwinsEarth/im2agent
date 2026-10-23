@@ -13,20 +13,20 @@ import (
 // v1.7.8 客服工单：用户反馈 → 工单 → 处理闭环。
 // 状态：1 待处理 / 2 处理中 / 3 已解决 / 4 已关闭；回复方：1 用户 / 2 客服。
 type supportTicket struct {
-	ID         int64           `json:"id"`
-	TicketNo   string          `json:"ticket_no"`
-	UserID     int64           `json:"user_id"`
-	Contact    string          `json:"contact"`
-	Category   string          `json:"category"`
-	Subject    string          `json:"subject"`
-	Content    string          `json:"content"`
-	Priority   int             `json:"priority"`
-	Status     int             `json:"status"`
-	Assignee   string          `json:"assignee"`
-	CreatedAt  string          `json:"created_at"`
-	UpdatedAt  string          `json:"updated_at"`
-	ResolvedAt string          `json:"resolved_at"`
-	Replies    []supportReply  `json:"replies,omitempty"`
+	ID         int64          `json:"id"`
+	TicketNo   string         `json:"ticket_no"`
+	UserID     int64          `json:"user_id"`
+	Contact    string         `json:"contact"`
+	Category   string         `json:"category"`
+	Subject    string         `json:"subject"`
+	Content    string         `json:"content"`
+	Priority   int            `json:"priority"`
+	Status     int            `json:"status"`
+	Assignee   string         `json:"assignee"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
+	ResolvedAt string         `json:"resolved_at"`
+	Replies    []supportReply `json:"replies,omitempty"`
 }
 
 type supportReply struct {
@@ -125,7 +125,7 @@ func (d *Deps) supportCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	// 写入审计事件
 	d.DB.ExecContext(r.Context(), `INSERT INTO audit_events(occurred_at,trace_id,action,decision,detail) VALUES(now(),$1,'support_ticket','CREATED',$2)`,
-		ticketNo, `{"id":`+strconv.FormatInt(id,10)+`,"category":"`+req.Category+`"}`)
+		ticketNo, `{"id":`+strconv.FormatInt(id, 10)+`,"category":"`+req.Category+`"}`)
 	t, err := d.fetchTicketByID(r.Context(), id)
 	if err != nil {
 		writeErr(w, 500, err.Error())

@@ -10,10 +10,11 @@ import (
 // DistillMux v0.7 蒸馏闭环 HTTP 端点。
 //
 // 路线：
-//   GET  /v1/distill/stats                 全局统计（master 查看）
-//   GET  /v1/distill/feedback?agentId=...  某 Agent 的反馈明细
-//   GET  /v1/distill/require?agentId=...&key=...  查询是否强制审批
-//   POST /v1/distill/reset                 master 手动解除收紧（回滚）
+//
+//	GET  /v1/distill/stats                 全局统计（master 查看）
+//	GET  /v1/distill/feedback?agentId=...  某 Agent 的反馈明细
+//	GET  /v1/distill/require?agentId=...&key=...  查询是否强制审批
+//	POST /v1/distill/reset                 master 手动解除收紧（回滚）
 func (d *Deps) DistillMux(service string) *http.ServeMux {
 	mux := http.NewServeMux()
 
@@ -28,7 +29,7 @@ func (d *Deps) DistillMux(service string) *http.ServeMux {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"agentId": agent,
+			"agentId":  agent,
 			"feedback": d.Distill.Feedback(agent),
 		})
 	})
@@ -41,8 +42,8 @@ func (d *Deps) DistillMux(service string) *http.ServeMux {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"agentId": agent,
-			"key":     key,
+			"agentId":         agent,
+			"key":             key,
 			"requireApproval": d.Distill.RequireApproval(agent, key),
 		})
 	})
@@ -96,7 +97,7 @@ func (d *Deps) DistillMux(service string) *http.ServeMux {
 		}
 		d.Distill.Record(req.UserID, req.AgentID, req.Key, req.Delta)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":             true,
+			"ok":              true,
 			"requireApproval": d.Distill.RequireApproval(req.AgentID, req.Key),
 			"reason":          d.Distill.TightenReason(req.AgentID, req.Key),
 		})

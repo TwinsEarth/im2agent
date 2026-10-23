@@ -13,6 +13,7 @@ func TestV172_ReadReceiptAndGroupMembership(t *testing.T) {
 	d := v12Deps(t)
 	h := d.IMMux()
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanIMBySuf(t, d.DB, suf) })
 
 	post := func(cmd, from, to, groupID, msgKey string) *httptest.ResponseRecorder {
 		body := []byte(fmt.Sprintf(`{"CallbackCommand":%q,"From_Account":%q,"To_Account":%q,"GroupId":%q,"MsgKey":%q,"MsgBody":[]}`,

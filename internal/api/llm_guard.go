@@ -20,11 +20,14 @@ type GuardResult struct {
 func (d *Deps) guardReview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		FromAgentID string `json:"fromAgentId"`
-		ToUserID     string `json:"toUserId"`
-		Text         string `json:"text"`
+		ToUserID    string `json:"toUserId"`
+		Text        string `json:"text"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if req.Text == "" { writeErr(w, 400, "text required"); return }
+	if req.Text == "" {
+		writeErr(w, 400, "text required")
+		return
+	}
 
 	prompt := `审查 Agent 外发消息。检查：
 - 不含手机号/身份证/银行卡/家庭住址

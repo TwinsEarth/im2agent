@@ -186,9 +186,9 @@ func (c *Client) officialUserSig(identifier string) (string, error) {
 		"TLS.ver":        "2.0",
 		"TLS.identifier": identifier,
 		"TLS.sdkappid":   c.cfg.SDKAppID,
-		"TLS.expire":      expireSec,
-		"TLS.time":        now,
-		"TLS.sig":         sigB64,
+		"TLS.expire":     expireSec,
+		"TLS.time":       now,
+		"TLS.sig":        sigB64,
 	})
 
 	var zb bytes.Buffer
@@ -240,7 +240,7 @@ type WebhookEvent struct {
 	GroupID         string `json:"GroupId"`
 	MsgKey          string `json:"MsgKey"`
 	MsgID           string `json:"MsgId"`
-	MsgBody         []any          `json:"MsgBody"` // 腾讯云 MsgBody 是 element 数组，不是对象
+	MsgBody         []any  `json:"MsgBody"` // 腾讯云 MsgBody 是 element 数组，不是对象
 	MsgTime         int64  `json:"MsgTime"`
 }
 
@@ -549,7 +549,7 @@ func (c *Client) CreateGroup(groupID, name, owner string, members []string) erro
 		}
 	}
 	_, err := c.call("/v4/group_open_http_svc/create_group", map[string]any{
-		"Type":         "Private",
+		"Type":          "Private",
 		"GroupId":       groupID,
 		"Name":          name,
 		"Owner_Account": owner,
@@ -573,7 +573,7 @@ func (c *Client) AddGroupMembers(groupID string, members []string) error {
 		}
 	}
 	_, err := c.call("/v4/group_open_http_svc/add_group_member", map[string]any{
-		"GroupId":   groupID,
+		"GroupId":    groupID,
 		"MemberList": list,
 	})
 	return err

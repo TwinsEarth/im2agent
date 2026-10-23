@@ -3,9 +3,9 @@ package api
 
 import (
 	"encoding/json"
-	"strconv"
 	"net/http"
 	"runtime"
+	"strconv"
 	"time"
 )
 
@@ -29,7 +29,7 @@ func (d *Deps) AdminMetrics(w http.ResponseWriter, r *http.Request) {
 	// 从 PG 查真实业务计数
 	if d.DB != nil {
 		tables := map[string]string{
-			"im2a_messages_total":    "SELECT COUNT(*) FROM messages",
+			"im2a_messages_total":     "SELECT COUNT(*) FROM messages",
 			"im2a_audit_events_total": "SELECT COUNT(*) FROM audit_events",
 			"im2a_ledger_total":       "SELECT COUNT(*) FROM payment_ledger_legacy_v09",
 			"im2a_devices_total":      "SELECT COUNT(*) FROM devices",
