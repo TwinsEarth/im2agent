@@ -59,7 +59,7 @@ func main() {
 			"version": version.Version,
 			"commit":  version.GitCommit,
 			"docs":    "/healthz, /v1/events, /v1/trust/, /v1/approvals/, /v1/negotiations/, /v1/paid/, /v1/compliance/, /v1/msg/, /v1/memory/, /v1/distill/, /v1/model/",
-			"token":   "Authorization: Bearer im2a_demo_token",
+			"auth":    "Bearer token required",
 		})
 	})
 
@@ -76,7 +76,8 @@ func main() {
 		h = ratelimit.IPLimit(h, 100, 200) // 100 rps, burst 200
 		h = auditor.Audit(h)               // 捕获 401/403/429 与正常请求，落 security_events
 		h = security.CORS(corsAllowed, h)  // 预检在认证前；非白名单来源拒绝
-		h = security.Headers(h)            // 最外层：所有响应（含 401/429）均带安全头
+		h = security.Headers(h)            // 所有响应（含 401/429）均带安全头
+		h = security.MaxBody(2<<20, h)     // 统一 2MiB 请求体上限，缓解内存放大 DoS
 		return h
 	}
 
