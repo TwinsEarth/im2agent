@@ -43,8 +43,6 @@ func (s *Service) Upsert(ctx context.Context, a *Agent) error {
 	return err
 }
 
-func scan(rows interface{ Next() bool; Scan(...any) error }) (*Agent,error) { return nil,nil }
-
 func (s *Service) Get(ctx context.Context, agentID string) (*Agent,error) {
 	a:=&Agent{}; var tj []byte
 	err:=s.db.QueryRowContext(ctx,
