@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -19,6 +20,7 @@ import (
 	"human-agent-im/internal/api"
 	"human-agent-im/internal/auth"
 	"human-agent-im/internal/ratelimit"
+	"human-agent-im/internal/security"
 	"human-agent-im/internal/version"
 )
 
@@ -63,9 +65,18 @@ func main() {
 
 	// 中间件链：认证 → 限流
 	token := os.Getenv("GATEWAY_TOKEN")
+	auditor := security.New(deps.DB)
+	corsAllowed := []string{"https://geefish.cn", "https://www.geefish.cn"}
+	if v := os.Getenv("CORS_ALLOWED"); v != "" {
+		corsAllowed = strings.Split(v, ",")
+	}
+	// 中间件链（外→内）：CORS 白名单 → 安全审计落库 → 限流 → 认证 → 安全响应头 → 业务
 	wrap := func(h http.Handler) http.Handler {
 		h = auth.RequireToken(h, token)
 		h = ratelimit.IPLimit(h, 100, 200) // 100 rps, burst 200
+		h = auditor.Audit(h)               // 捕获 401/403/429 与正常请求，落 security_events
+		h = security.CORS(corsAllowed, h)  // 预检在认证前；非白名单来源拒绝
+		h = security.Headers(h)            // 最外层：所有响应（含 401/429）均带安全头
 		return h
 	}
 
@@ -156,6 +167,19 @@ func main() {
 	if adminToken == "" { adminToken = token }
 	adminH := auth.RequireToken(http.HandlerFunc(deps.AdminMux().ServeHTTP), adminToken)
 	mux.Handle("/v1/admin/", adminH)
+	mux.Handle("GET /v1/admin/security", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deps.DB == nil {
+			http.Error(w, "db not configured", http.StatusServiceUnavailable)
+			return
+		}
+		list, err := auditor.List(r.Context(), r.URL.Query().Get("type"), 200)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{"events": list})
+	}), adminToken))
 	mux.Handle("/admin/", deps.AdminPage())
 	mux.Handle("POST /v1/edge/pipeline", wrap(http.HandlerFunc(deps.EdgePipeline)))
 	mux.Handle("GET /v1/edge/egress/report", wrap(http.HandlerFunc(deps.EgressReport)))
