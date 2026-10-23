@@ -1,4 +1,7 @@
 GO ?= go
+VERSION ?= v1.6.5
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS := -s -w -X human-agent-im/internal/version.Version=$(VERSION) -X human-agent-im/internal/version.GitCommit=$(COMMIT)
 SERVICES := msg-svc relation-svc approval-engine negotiation-svc payment-svc compliance-gate agent-orchestrator gateway
 
 .PHONY: build vet selftest-all gotest test gate proto up down clean help
@@ -46,3 +49,24 @@ down: ## 停止基础依赖
 
 clean: ## 清理生成物
 	rm -rf proto/gen bin dist data logs
+
+# ---- 发布（v1.6.5 五方发布）----
+.PHONY: release-build checksums compat
+
+release-build: ## 跨平台编译网关二进制（linux/darwin/windows × amd64/arm64）
+	@mkdir -p dist
+	@for os in linux darwin windows; do \
+		for arch in amd64 arm64; do \
+			out="dist/im2a-gateway_$${os}_$${arch}"; \
+			[ "$$os" = windows ] && out="$$out.exe"; \
+			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o "$$out" ./services/gateway; \
+			echo "BUILT $$out"; \
+		done; \
+	done
+	@$(MAKE) checksums
+
+checksums: ## 生成 dist 校验和
+	@cd dist && sha256sum im2a-gateway* > checksums.txt && cat checksums.txt
+
+compat: ## 兼容性门禁：契约稳定 + 跨平台矩阵编译
+	@bash scripts/compat-check.sh

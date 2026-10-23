@@ -1,9 +1,12 @@
 # human-agent-im · AI 人机混合熟人社交 IM 平台
 
 ![CI](https://github.com/TwinsEarth/im2agent/actions/workflows/ci.yml/badge.svg)
+![Compat](https://github.com/TwinsEarth/im2agent/actions/workflows/compat.yml/badge.svg)
+![Release](https://github.com/TwinsEarth/im2agent/actions/workflows/release.yml/badge.svg)
+![npm](https://img.shields.io/npm/v/im2agent?logo=npm&label=npm)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-SDK-02569B?logo=flutter&logoColor=white)
-![Version](https://img.shields.io/badge/version-v0.9.9-blue)
+![Version](https://img.shields.io/badge/version-v1.6.5-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 > **Slogan**：让每个人都拥有自己专属的 AI 秘书、助理与管家团队。

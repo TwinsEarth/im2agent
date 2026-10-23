@@ -14,11 +14,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27'
+          cache: true
       - name: Build
         run: go build ./...
       - name: Vet
         run: go vet ./...
-      - name: Test
+      - name: Test (race)
         run: go test -race ./...
-      - name: Selftest
+      - name: 7-service selftest
         run: make selftest-all

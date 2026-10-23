@@ -18,6 +18,7 @@ import (
 	"human-agent-im/internal/api"
 	"human-agent-im/internal/auth"
 	"human-agent-im/internal/ratelimit"
+	"human-agent-im/internal/version"
 )
 
 func main() {
@@ -52,6 +53,8 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]any{
 			"service": "IM2A Gateway",
 			"status":  "ok",
+			"version": version.Version,
+			"commit":  version.GitCommit,
 			"docs":    "/healthz, /v1/events, /v1/trust/, /v1/approvals/, /v1/negotiations/, /v1/paid/, /v1/compliance/, /v1/msg/, /v1/memory/, /v1/distill/, /v1/model/",
 			"token":   "Authorization: Bearer im2a_demo_token",
 		})

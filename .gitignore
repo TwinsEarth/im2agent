@@ -32,3 +32,4 @@ client/app/ios/.symlinks/
 
 # local backups
 *.bak
+npm/*.tgz

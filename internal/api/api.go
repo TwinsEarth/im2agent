@@ -17,6 +17,7 @@ import (
 	"human-agent-im/internal/model"
 	"human-agent-im/internal/stream"
 	"human-agent-im/internal/skillruntime"
+	"human-agent-im/internal/version"
 	"database/sql"
 	"human-agent-im/internal/store"
 )
@@ -47,6 +48,7 @@ func HealthHandler(serviceName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"service": serviceName, "status": "ok", "time": time.Now().Unix(),
+			"version": version.Version, "commit": version.GitCommit,
 		})
 	}
 }
