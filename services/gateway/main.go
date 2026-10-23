@@ -120,6 +120,7 @@ func main() {
 	// v1.7.4：离线推送管理 API
 	deps.PushClient = &push.Client{BaseURL: os.Getenv("TIM_BASE_URL"), SDKAppID: "1600168829", HTTP: http.DefaultClient}
 	mux.Handle("/v1/push/", wrap(deps.PushMux()))
+	mux.Handle("/v1/support/", wrap(deps.SupportMux()))
 	mux.Handle("/v1/intent/", wrap(deps.LLMIntentMux()))
 	mux.Handle("/v1/guard/", wrap(deps.LLMGuardMux()))
 	mux.Handle("/v1/distill/feedback", wrap(deps.LLMDistillMux()))
@@ -146,10 +147,7 @@ func main() {
 	adminToken := os.Getenv("IM2A_ADMIN_TOKEN")
 	if adminToken == "" { adminToken = token }
 	adminH := auth.RequireToken(http.HandlerFunc(deps.AdminMux().ServeHTTP), adminToken)
-	mux.Handle("/v1/admin/stats", adminH)
-	mux.Handle("/v1/admin/timeseries", adminH)
-	mux.Handle("/v1/admin/payments", adminH)
-	mux.Handle("/v1/admin/agents", adminH)
+	mux.Handle("/v1/admin/", adminH)
 	mux.Handle("/admin/", deps.AdminPage())
 	mux.Handle("POST /v1/edge/pipeline", wrap(http.HandlerFunc(deps.EdgePipeline)))
 	mux.Handle("GET /v1/edge/egress/report", wrap(http.HandlerFunc(deps.EgressReport)))

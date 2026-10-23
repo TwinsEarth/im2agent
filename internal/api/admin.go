@@ -13,6 +13,7 @@ func (d *Deps) AdminMux() http.Handler {
 	mux.HandleFunc("GET /v1/admin/timeseries", d.adminTimeseries)
 	mux.HandleFunc("GET /v1/admin/payments", d.adminPayments)
 	mux.HandleFunc("GET /v1/admin/agents", d.adminAgents)
+	d.adminSupportRegister(mux)
 	return mux
 }
 
@@ -266,6 +267,13 @@ button{background:var(--acc);border:0;color:#fff;border-radius:8px;padding:9px 1
 .bar-stack{width:60%;display:flex;flex-direction:column-reverse;border-radius:4px 4px 0 0;overflow:hidden}
 .bar-lbl{font-size:10px;color:var(--mut);margin-top:6px}
 .err{color:var(--bad)}.ok{color:var(--ok)}
+.ticket{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.ticket .th{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+.ticket .msg{background:#0d131a;border-radius:8px;padding:6px 10px;margin:4px 0;font-size:13px}
+.ticket .who{color:var(--mut);font-size:11px;margin-right:6px}
+.ticket textarea{width:100%;background:#0d131a;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px;margin-top:6px;font:inherit}
+.tbtn{background:var(--card);border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:5px 12px;font-size:12px;margin:6px 6px 0 0;cursor:pointer}
+.tbtn.on{background:var(--acc);border-color:var(--acc);color:#fff}
 </style></head><body>
 <h1>IM2A 运营后台</h1>
 <div class="sub">人机混合 IM · 实时运营仪表盘 · 数据来自生产 PG 实时聚合 · 10 秒自动刷新</div>
@@ -282,6 +290,15 @@ button{background:var(--acc);border:0;color:#fff;border-radius:8px;padding:9px 1
 <span style="color:#3b82f6">■ 模型调用</span><span style="color:#22c55e">■ IM消息</span><span style="color:#f59e0b">■ Webhook</span><span style="color:#a855f7">■ 付费</span><span style="color:#ef4444">■ 审批</span></div></div>
 <div class="sec"><h2>付费流水（最新 50 笔）</h2><table class="table"><thead><tr><th>ID</th><th>发送</th><th>接收</th><th>计费模式</th><th>金额(分)</th><th>状态</th><th>时间</th></tr></thead><tbody id="payrows"></tbody></table></div>
 <div class="sec"><h2>Agent 注册（最新 100）</h2><table class="table"><thead><tr><th>AgentID</th><th>Owner</th><th>类型</th><th>最低信任</th><th>日预算(分)</th><th>启用</th></tr></thead><tbody id="agentrows"></tbody></table></div>
+<div class="sec"><h2>客服工单</h2>
+<div style="margin-bottom:10px">
+ <button class="tbtn on" data-f="0" onclick="setFilter(0)">全部</button>
+ <button class="tbtn" data-f="1" onclick="setFilter(1)">待处理</button>
+ <button class="tbtn" data-f="2" onclick="setFilter(2)">处理中</button>
+ <button class="tbtn" data-f="3" onclick="setFilter(3)">已解决</button>
+ <button class="tbtn" data-f="4" onclick="setFilter(4)">已关闭</button>
+</div>
+<div id="ticketlist"></div></div>
 <script>
 var CARDS=[
  ["users_total","用户总数"],["im_accounts","IM 账号"],["agent_capabilities","Agent 能力"],
@@ -329,7 +346,40 @@ function loadDetails(){
   }).join("")||'<tr><td colspan=6 class="sub">暂无</td></tr>';
  });
 }
-function loadAll(){load().then(function(){return loadDetails().catch(function(){});});}
+
+var TS={1:"待处理",2:"处理中",3:"已解决",4:"已关闭"};
+var tFilter=0;
+function jpost(path,body){
+ var tok=document.getElementById("tok").value.trim();
+ return fetch(path,{method:"POST",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.json();});
+}
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function setFilter(f){tFilter=f;
+ var btns=document.querySelectorAll("#ticketfilter,.tbtn");
+ Array.prototype.forEach.call(document.querySelectorAll('[data-f]'),function(b){b.className="tbtn"+(Number(b.getAttribute("data-f"))===f?" on":"");});
+ loadTickets();
+}
+function loadTickets(){
+ return jget("/v1/admin/tickets"+(tFilter?("?status="+tFilter):"")).then(function(r){
+  document.getElementById("ticketlist").innerHTML=(r.tickets||[]).map(function(t){
+   var msgs='<div class="msg"><span class="who">用户</span>'+esc(t.content)+'</div>';
+   (t.replies||[]).forEach(function(x){msgs+='<div class="msg"><span class="who">'+(x.author_type===2?'客服':'用户')+' '+(x.author||"")+'</span>'+esc(x.content)+'</div>';});
+   return '<div class="ticket"><div class="th"><div><b>'+t.ticket_no+'</b> <span class="pill">'+(TS[t.status]||t.status)+'</span> <span class="who">'+esc(t.category)+'</span></div><div class="who">'+esc(t.assignee||"未分配")+'</div></div>'+
+    '<div><b>'+esc(t.subject)+'</b><div class="who">联系方式 '+esc(t.contact||"无")+'</div></div>'+msgs+
+    '<textarea id="tr_'+t.id+'" placeholder="客服回复内容…"></textarea>'+
+    '<button class="tbtn" onclick="replyTicket('+t.id+',2)">回复(处理中)</button>'+
+    '<button class="tbtn" onclick="replyTicket('+t.id+',3)">回复并解决</button>'+
+    '<button class="tbtn" onclick="closeTicket('+t.id+')">关闭</button></div>';
+  }).join("")||'<div class="sub">无工单</div>';
+ }).catch(function(){});
+}
+function replyTicket(id,status){
+ var c=document.getElementById("tr_"+id).value.trim();if(!c)return;
+ jpost("/v1/admin/tickets/"+id+"/reply",{author:"kefu",assignee:"kefu",content:c,status:status}).then(function(){loadTickets();});
+}
+function closeTicket(id){jpost("/v1/admin/tickets/"+id+"/status",{status:4,assignee:"kefu"}).then(function(){loadTickets();});}
+
+function loadAll(){load().then(function(){return loadDetails().catch(function(){}).then(function(){return loadTickets();});});}
 window.addEventListener("load",function(){
  var t=localStorage.getItem("im2a_admin_tok");if(t){document.getElementById("tok").value=t;loadAll();}
  setInterval(function(){if(document.getElementById("tok").value.trim())loadAll();},10000);
