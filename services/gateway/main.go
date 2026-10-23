@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -22,6 +23,7 @@ import (
 	"human-agent-im/internal/ratelimit"
 	"human-agent-im/internal/security"
 	"human-agent-im/internal/masking"
+	"human-agent-im/internal/privacy"
 	"human-agent-im/internal/version"
 )
 
@@ -200,6 +202,48 @@ func main() {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]any{"role": mk.Role, "fields_masked": n, "tickets": out})
 	}), adminToken))
+	// v1.8.6 数据主体权利（个保法 §44-47）：导出 / 删除 / 查询，管理员 token 保护。
+	privacyH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deps.DB == nil {
+			http.Error(w, "db not configured", http.StatusServiceUnavailable)
+			return
+		}
+		uid, err := strconv.ParseInt(r.URL.Query().Get("user_id"), 10, 64)
+		if err != nil || uid <= 0 {
+			http.Error(w, "user_id required", http.StatusBadRequest)
+			return
+		}
+		pv := privacy.New(deps.DB)
+		reason := r.URL.Query().Get("reason")
+		switch {
+		case r.URL.Path == "/v1/privacy/export" && r.Method == http.MethodPost:
+			data, id, err := pv.Export(r.Context(), uid, reason)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"request_id": id, "data": data})
+		case r.URL.Path == "/v1/privacy/delete" && r.Method == http.MethodPost:
+			report, id, err := pv.Erase(r.Context(), uid, reason)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"request_id": id, "report": report})
+		case r.URL.Path == "/v1/privacy/requests" && r.Method == http.MethodGet:
+			reqs, err := pv.List(r.Context(), uid, 100)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"requests": reqs, "count": len(reqs)})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	})
+	mux.Handle("POST /v1/privacy/export", auth.RequireToken(privacyH, adminToken))
+	mux.Handle("POST /v1/privacy/delete", auth.RequireToken(privacyH, adminToken))
+	mux.Handle("GET /v1/privacy/requests", auth.RequireToken(privacyH, adminToken))
 	mux.Handle("/admin/", deps.AdminPage())
 	mux.Handle("POST /v1/edge/pipeline", wrap(http.HandlerFunc(deps.EdgePipeline)))
 	mux.Handle("GET /v1/edge/egress/report", wrap(http.HandlerFunc(deps.EgressReport)))
