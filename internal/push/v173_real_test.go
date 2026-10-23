@@ -66,6 +66,11 @@ func TestV173_OfflinePushQueueAndDispatch(t *testing.T) {
 	userB := "v173B_" + suf
 	// 用户C：配了空 cert_ref → cert_not_configured
 	userC := "v173C_" + suf
+	// 隔离清理：仅删本测试 v173 前缀数据，不再 TRUNCATE 全表。
+	t.Cleanup(func() {
+		db.Exec(`DELETE FROM im_push_tasks WHERE user_id LIKE 'v173%'`)
+		db.Exec(`DELETE FROM im_push_credentials WHERE user_id LIKE 'v173%'`)
+	})
 
 	if _, err := db.Exec(`INSERT INTO im_push_credentials(user_id,platform,cert_ref,device_token) VALUES($1,'apns','cert-abc','tok-123')`, userA); err != nil {
 		t.Fatalf("cred A: %v", err)
