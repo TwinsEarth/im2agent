@@ -21,6 +21,7 @@ import (
 	"human-agent-im/internal/auth"
 	"human-agent-im/internal/ratelimit"
 	"human-agent-im/internal/security"
+	"human-agent-im/internal/masking"
 	"human-agent-im/internal/version"
 )
 
@@ -180,6 +181,24 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]any{"events": list})
+	}), adminToken))
+	mux.Handle("GET /v1/egress/tickets", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deps.DB == nil {
+			http.Error(w, "db not configured", http.StatusServiceUnavailable)
+			return
+		}
+		role := r.URL.Query().Get("role")
+		if role == "" {
+			role = masking.RoleOther // 缺省最小暴露
+		}
+		mk := masking.New(role)
+		out, n, err := mk.EgressTickets(r.Context(), deps.DB, "gateway:"+mk.Role, "egress_tickets")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{"role": mk.Role, "fields_masked": n, "tickets": out})
 	}), adminToken))
 	mux.Handle("/admin/", deps.AdminPage())
 	mux.Handle("POST /v1/edge/pipeline", wrap(http.HandlerFunc(deps.EdgePipeline)))
