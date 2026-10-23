@@ -118,7 +118,11 @@ func main() {
 		auth.RequireToken(imH, token).ServeHTTP(w, r)
 	}), 100, 200))
 	// v1.7.4：离线推送管理 API
-	deps.PushClient = &push.Client{BaseURL: os.Getenv("TIM_BASE_URL"), SDKAppID: "1600168829", HTTP: http.DefaultClient}
+	pushBase := os.Getenv("TIM_BASE_URL")
+	if pushBase == "" {
+		pushBase = "https://console.tim.qq.com" // 与 internal/im 默认端点一致，避免未配置时静默空 URL
+	}
+	deps.PushClient = &push.Client{BaseURL: pushBase, SDKAppID: "1600168829", HTTP: http.DefaultClient}
 	mux.Handle("/v1/push/", wrap(deps.PushMux()))
 	mux.Handle("/v1/support/", wrap(deps.SupportMux()))
 	mux.Handle("/v1/moderation/", wrap(deps.ModerationMux()))
