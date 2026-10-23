@@ -10,6 +10,9 @@ import (
 func (d *Deps) AdminMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/admin/stats", d.adminStats)
+	mux.HandleFunc("GET /v1/admin/timeseries", d.adminTimeseries)
+	mux.HandleFunc("GET /v1/admin/payments", d.adminPayments)
+	mux.HandleFunc("GET /v1/admin/agents", d.adminAgents)
 	return mux
 }
 
@@ -51,6 +54,154 @@ func (d *Deps) adminStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"service": "IM2A Admin", "status": "ok", "stats": stats,
 	})
+}
+
+
+// v1.7.7：调用量 / 消息 / 付费 / 审批 按天时间序列（默认近 7 天，最多 30）。
+func (d *Deps) adminTimeseries(w http.ResponseWriter, r *http.Request) {
+	days := 7
+	if n := atoiDefault(r.URL.Query().Get("days"), 7); n >= 1 && n <= 30 {
+		days = n
+	}
+	ctx := r.Context()
+	type dayMetrics struct {
+		Date          string `json:"date"`
+		ModelCalls    int    `json:"model_calls"`
+		IMMessages    int    `json:"im_messages"`
+		WebhookEvents int    `json:"webhook_events"`
+		Paid          int    `json:"paid_charged"`
+		Approvals     int    `json:"approvals"`
+	}
+	series := map[string]*dayMetrics{}
+	fill := func(q, key string) {
+		rows, err := d.DB.QueryContext(ctx, q, days)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var dt string
+			var n int
+			if err := rows.Scan(&dt, &n); err != nil {
+				continue
+			}
+			m, ok := series[dt]
+			if !ok {
+				m = &dayMetrics{Date: dt}
+				series[dt] = m
+			}
+			switch key {
+			case "model":
+				m.ModelCalls = n
+			case "im":
+				m.IMMessages = n
+			case "webhook":
+				m.WebhookEvents = n
+			case "paid":
+				m.Paid = n
+			case "approvals":
+				m.Approvals = n
+			}
+		}
+	}
+	fill(`SELECT to_char(occurred_at,'YYYY-MM-DD') d, count(*) FROM audit_events WHERE action='model_call' AND occurred_at >= now()-make_interval(days=>$1::int) GROUP BY d`, "model")
+	fill(`SELECT to_char(created_at,'YYYY-MM-DD') d, count(*) FROM im_messages WHERE created_at >= now()-make_interval(days=>$1::int) GROUP BY d`, "im")
+	fill(`SELECT to_char(received_at,'YYYY-MM-DD') d, count(*) FROM im_webhook_events WHERE received_at >= now()-make_interval(days=>$1::int) GROUP BY d`, "webhook")
+	fill(`SELECT to_char(charged_at,'YYYY-MM-DD') d, count(*) FROM paid_message_ledger WHERE status=1 AND charged_at >= now()-make_interval(days=>$1::int) GROUP BY d`, "paid")
+	fill(`SELECT to_char(created_at,'YYYY-MM-DD') d, count(*) FROM approval_tickets WHERE created_at >= now()-make_interval(days=>$1::int) GROUP BY d`, "approvals")
+
+	// 补齐空日期，保证连续
+	out := []dayMetrics{}
+	for i := days - 1; i >= 0; i-- {
+		var ds string
+		_ = d.DB.QueryRowContext(ctx, `SELECT to_char(now()-make_interval(days=>$1::int),'YYYY-MM-DD')`, i).Scan(&ds)
+		if m, ok := series[ds]; ok {
+			out = append(out, *m)
+		} else {
+			out = append(out, dayMetrics{Date: ds})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "days": days, "series": out})
+}
+
+// v1.7.7：付费流水明细（真实账本）。
+func (d *Deps) adminPayments(w http.ResponseWriter, r *http.Request) {
+	limit := atoiDefault(r.URL.Query().Get("limit"), 50)
+	if limit < 1 || limit > 200 {
+		limit = 50
+	}
+	rows, err := d.DB.QueryContext(r.Context(), `SELECT id, message_id, sender_id, receiver_id, billing_mode, amount_cents, status, created_at, COALESCE(charged_at::text,'') FROM paid_message_ledger ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	type row struct {
+		ID          int64  `json:"id"`
+		MessageID   string `json:"message_id"`
+		Sender      int64  `json:"sender_id"`
+		Receiver    int64  `json:"receiver_id"`
+		BillingMode int    `json:"billing_mode"`
+		AmountCents int64  `json:"amount_cents"`
+		Status      int    `json:"status"`
+		CreatedAt   string `json:"created_at"`
+		ChargedAt   string `json:"charged_at"`
+	}
+	list := []row{}
+	for rows.Next() {
+		var x row
+		var created string
+		if err := rows.Scan(&x.ID, &x.MessageID, &x.Sender, &x.Receiver, &x.BillingMode, &x.AmountCents, &x.Status, &created, &x.ChargedAt); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		x.CreatedAt = created
+		list = append(list, x)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "payments": list})
+}
+
+// v1.7.7：Agent 注册明细（真实 agent_capabilities）。
+func (d *Deps) adminAgents(w http.ResponseWriter, r *http.Request) {
+	rows, err := d.DB.QueryContext(r.Context(), `SELECT agent_id, owner_id, kind, trust_level_min, budget_cents_per_day, enabled, COALESCE(updated_at::text,'') FROM agent_capabilities ORDER BY updated_at DESC NULLS LAST LIMIT 100`)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	type row struct {
+		AgentID            string `json:"agent_id"`
+		OwnerID            int64  `json:"owner_id"`
+		Kind               string `json:"kind"`
+		TrustLevelMin      int    `json:"trust_level_min"`
+		BudgetCentsPerDay  int64  `json:"budget_cents_per_day"`
+		Enabled            bool   `json:"enabled"`
+		UpdatedAt          string `json:"updated_at"`
+	}
+	list := []row{}
+	for rows.Next() {
+		var x row
+		if err := rows.Scan(&x.AgentID, &x.OwnerID, &x.Kind, &x.TrustLevelMin, &x.BudgetCentsPerDay, &x.Enabled, &x.UpdatedAt); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		list = append(list, x)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "agents": list})
+}
+
+func atoiDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n := 0
+	for _, ch := range s {
+		if ch < '0' || ch > '9' {
+			return def
+		}
+		n = n*10 + int(ch-'0')
+	}
+	return n
 }
 
 func (d *Deps) countQ(r context.Context, q string) int {
@@ -103,26 +254,36 @@ button{background:var(--acc);border:0;color:#fff;border-radius:8px;padding:9px 1
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
 .card .k{color:var(--mut);font-size:12px;margin-bottom:8px}.card .v{font-size:26px;font-weight:700}
-.card .v small{font-size:13px;color:var(--mut);font-weight:400}
 .sec{margin-top:26px}.sec h2{font-size:15px;color:var(--mut);margin-bottom:10px;font-weight:600}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px}
 .chip b{color:var(--acc)}
+.table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.table th,.table td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;white-space:nowrap}
+.table th{color:var(--mut);font-weight:600}.pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+.bars{display:flex;align-items:flex-end;gap:10px;height:160px;margin-top:10px}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.bar-stack{width:60%;display:flex;flex-direction:column-reverse;border-radius:4px 4px 0 0;overflow:hidden}
+.bar-lbl{font-size:10px;color:var(--mut);margin-top:6px}
 .err{color:var(--bad)}.ok{color:var(--ok)}
 </style></head><body>
 <h1>IM2A 运营后台</h1>
-<div class="sub">人机混合 IM · 实时运营仪表盘 · 数据来自生产 PG 实时聚合</div>
+<div class="sub">人机混合 IM · 实时运营仪表盘 · 数据来自生产 PG 实时聚合 · 10 秒自动刷新</div>
 <div class="bar">
   <input id="tok" type="password" placeholder="管理员 Token（IM2A_ADMIN_TOKEN）">
-  <button onclick="load()">刷新</button>
+  <button onclick="loadAll()">刷新</button>
   <span id="status" class="sub"></span>
 </div>
 <div class="grid" id="grid"></div>
 <div class="sec"><h2>审批状态分布</h2><div class="chips" id="appr"></div></div>
 <div class="sec"><h2>协商状态分布</h2><div class="chips" id="nego"></div></div>
+<div class="sec"><h2>近 7 天趋势</h2><div class="bars" id="chart"></div>
+<div style="margin-top:8px;display:flex;gap:14px;font-size:12px;color:var(--mut)">
+<span style="color:#3b82f6">■ 模型调用</span><span style="color:#22c55e">■ IM消息</span><span style="color:#f59e0b">■ Webhook</span><span style="color:#a855f7">■ 付费</span><span style="color:#ef4444">■ 审批</span></div></div>
+<div class="sec"><h2>付费流水（最新 50 笔）</h2><table class="table"><thead><tr><th>ID</th><th>发送</th><th>接收</th><th>计费模式</th><th>金额(分)</th><th>状态</th><th>时间</th></tr></thead><tbody id="payrows"></tbody></table></div>
+<div class="sec"><h2>Agent 注册（最新 100）</h2><table class="table"><thead><tr><th>AgentID</th><th>Owner</th><th>类型</th><th>最低信任</th><th>日预算(分)</th><th>启用</th></tr></thead><tbody id="agentrows"></tbody></table></div>
 <script>
-const MONEY=["users_total","im_accounts","agent_capabilities"];
-const CARDS=[
+var CARDS=[
  ["users_total","用户总数"],["im_accounts","IM 账号"],["agent_capabilities","Agent 能力"],
  ["paid_total_cents","付费收入(分)"],["paid_charged","已计费笔数"],["paid_refunded","已退款"],
  ["approval_total","审批单总数"],["negotiation_total","协商会话"],
@@ -130,24 +291,47 @@ const CARDS=[
  ["im_messages","IM 消息"],["im_webhook_events","Webhook 事件"],["im_relations","关系链"],
  ["push_pending","待推送"],["tickets","客服工单"],["audit_total","审计事件总数"]
 ];
-async function load(){
- const tok=document.getElementById("tok").value.trim();
+function jget(path){
+ var tok=document.getElementById("tok").value.trim();
+ return fetch(path,{headers:{Authorization:"Bearer "+tok}}).then(function(r){if(!r.ok)throw new Error(path+" HTTP "+r.status);return r.json();});
+}
+function load(){
+ var tok=document.getElementById("tok").value.trim();
  localStorage.setItem("im2a_admin_tok",tok);
- const st=document.getElementById("status");
- try{
-  const r=await fetch("/v1/admin/stats",{headers:{Authorization:"Bearer "+tok}});
-  if(!r.ok){st.className="err";st.textContent="HTTP "+r.status;return;}
-  const j=await r.json();const s=j.stats||{};
+ var st=document.getElementById("status");
+ return jget("/v1/admin/stats").then(function(j){
+  var s=j.stats||{};
   st.className="ok";st.textContent="更新于 "+new Date().toLocaleTimeString();
-  document.getElementById("grid").innerHTML=CARDS.map(([k,label])=>{
-   let v=s[k]??0;
-   if(k==="paid_total_cents") v=(v/100).toFixed(2)+" 元";
-   return '<div class="card"><div class="k">'+label+'</div><div class="v">'+v+'</div></div>';
+  document.getElementById("grid").innerHTML=CARDS.map(function(c){
+   var v=s[c[0]]||0; if(c[0]==="paid_total_cents") v=(v/100).toFixed(2)+" 元";
+   return '<div class="card"><div class="k">'+c[1]+'</div><div class="v">'+v+'</div></div>';
   }).join("");
   chips("appr",s.approval_by_state);chips("nego",s.negotiation_by_state);
- }catch(e){st.className="err";st.textContent=String(e);}
+ }).catch(function(e){st.className="err";st.textContent=String(e);});
 }
-function chips(id,obj){const o=obj||{};document.getElementById(id).innerHTML=
- Object.entries(o).map(([k,v])=>'<span class="chip">'+k+' <b>'+v+'</b></span>').join("")||'<span class="chip">无</span>';}
-window.addEventListener("load",()=>{const t=localStorage.getItem("im2a_admin_tok");if(t){document.getElementById("tok").value=t;load();}});
+function chips(id,obj){obj=obj||{};
+ document.getElementById(id).innerHTML=Object.keys(obj).map(function(k){return '<span class="chip">'+k+' <b>'+obj[k]+'</b></span>';}).join("")||'<span class="chip">无</span>';
+}
+function seg(v,col,max){var h=Math.round((v/max)*100);if(h<=0)return "";return '<div style="height:'+h+'%;background:'+col+'"></div>';}
+function loadDetails(){
+ return Promise.all([jget("/v1/admin/timeseries?days=7"),jget("/v1/admin/payments?limit=50"),jget("/v1/admin/agents")]).then(function(r){
+  var s=r[0].series||[];var max=1;
+  s.forEach(function(d){[d.model_calls,d.im_messages,d.webhook_events,d.paid_charged,d.approvals].forEach(function(v){if(v>max)max=v;});});
+  document.getElementById("chart").innerHTML=s.map(function(d){
+   return '<div class="bar-col"><div class="bar-stack">'+seg(d.approvals,"#ef4444",max)+seg(d.paid_charged,"#a855f7",max)+seg(d.webhook_events,"#f59e0b",max)+seg(d.im_messages,"#22c55e",max)+seg(d.model_calls,"#3b82f6",max)+'</div><div class="bar-lbl">'+d.date.slice(5)+'</div></div>';
+  }).join("");
+  var mode={1:"发送即扣费",2:"回复才扣费"};var stt={1:"已计费",2:"已退款"};
+  document.getElementById("payrows").innerHTML=(r[1].payments||[]).map(function(p){
+   return '<tr><td>'+p.id+'</td><td>'+p.sender_id+'</td><td>'+p.receiver_id+'</td><td>'+(mode[p.billing_mode]||p.billing_mode)+'</td><td>'+p.amount_cents+'</td><td>'+(stt[p.status]||p.status)+'</td><td>'+(p.created_at||"").slice(0,16)+'</td></tr>';
+  }).join("")||'<tr><td colspan=7 class="sub">暂无</td></tr>';
+  document.getElementById("agentrows").innerHTML=(r[2].agents||[]).map(function(x){
+   return '<tr><td>'+x.agent_id+'</td><td>'+x.owner_id+'</td><td>'+x.kind+'</td><td>'+x.trust_level_min+'</td><td>'+x.budget_cents_per_day+'</td><td><span class="pill" style="color:'+(x.enabled?'var(--ok)':'var(--bad)')+'">'+(x.enabled?'启用':'停用')+'</span></td></tr>';
+  }).join("")||'<tr><td colspan=6 class="sub">暂无</td></tr>';
+ });
+}
+function loadAll(){load().then(function(){return loadDetails().catch(function(){});});}
+window.addEventListener("load",function(){
+ var t=localStorage.getItem("im2a_admin_tok");if(t){document.getElementById("tok").value=t;loadAll();}
+ setInterval(function(){if(document.getElementById("tok").value.trim())loadAll();},10000);
+});
 </script></body></html>`

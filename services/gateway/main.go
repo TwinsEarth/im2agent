@@ -145,7 +145,11 @@ func main() {
 	// v1.7.6：运营后台总入口——仪表盘真实聚合（独立管理员 Token，缺省回退网关 Token）+ 页面
 	adminToken := os.Getenv("IM2A_ADMIN_TOKEN")
 	if adminToken == "" { adminToken = token }
-	mux.Handle("/v1/admin/stats", auth.RequireToken(http.HandlerFunc(deps.AdminMux().ServeHTTP), adminToken))
+	adminH := auth.RequireToken(http.HandlerFunc(deps.AdminMux().ServeHTTP), adminToken)
+	mux.Handle("/v1/admin/stats", adminH)
+	mux.Handle("/v1/admin/timeseries", adminH)
+	mux.Handle("/v1/admin/payments", adminH)
+	mux.Handle("/v1/admin/agents", adminH)
 	mux.Handle("/admin/", deps.AdminPage())
 	mux.Handle("POST /v1/edge/pipeline", wrap(http.HandlerFunc(deps.EdgePipeline)))
 	mux.Handle("GET /v1/edge/egress/report", wrap(http.HandlerFunc(deps.EgressReport)))
