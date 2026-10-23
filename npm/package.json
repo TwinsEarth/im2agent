@@ -1,5 +1,5 @@
 {
-  "name": "im2agent",
+  "name": "@twinsearth/im2agent",
   "version": "1.6.5",
   "description": "IM2A gateway CLI launcher — human-agent hybrid IM (connect Agent networks, human keeps final approval).",
   "bin": {
@@ -12,7 +12,15 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["im2a", "agent", "im", "human-agent", "gateway", "approval", "ai-secretary"],
+  "keywords": [
+    "im2a",
+    "agent",
+    "im",
+    "human-agent",
+    "gateway",
+    "approval",
+    "ai-secretary"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

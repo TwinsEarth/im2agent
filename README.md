@@ -3,7 +3,7 @@
 ![CI](https://github.com/TwinsEarth/im2agent/actions/workflows/ci.yml/badge.svg)
 ![Compat](https://github.com/TwinsEarth/im2agent/actions/workflows/compat.yml/badge.svg)
 ![Release](https://github.com/TwinsEarth/im2agent/actions/workflows/release.yml/badge.svg)
-![npm](https://img.shields.io/npm/v/im2agent?logo=npm&label=npm)
+![npm](https://img.shields.io/npm/v/@twinsearth%2Fim2agent?logo=npm&label=npm)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-SDK-02569B?logo=flutter&logoColor=white)
 ![Version](https://img.shields.io/badge/version-v1.6.5-blue)
