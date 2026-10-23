@@ -311,3 +311,45 @@
 - **UserSig 是网关自洽票据，不是腾讯云官方 TLSSig**：`GenUserSig/VerifyUserSig` 用 HMAC-SHA256（网关内部可验签、可过期），腾讯云官方登录要求 ECDSA-SHA256 私有 TLV 算法。对接真实腾讯云应用时，需替换为官方算法/SDK（Go SDK `GenerateTestUserSig` 或后端 TLSSigAPIv2）。
 - webhook 已采用 HMAC 签名（`?key=` 或 `X-TIM-Timestamp/X-TIM-Signature`），腾讯云实际第三方回调以"回调 URL 携带密钥"方式配置，故生产回调 URL 应配置为 `https://<host>/v1/im/webhook?key=<TIM_WEBHOOK_SECRET>`；签名头模式为我们自定义的增强校验。
 - v1.2 改动目前只在服务器运行并部署，**尚未 commit/push 到 GitHub TwinsEarth/im2agent**（v1.0/v1.1/v1.2 均待提交）。
+
+
+---
+
+## v1.4 重做（端侧智能 + BLE，逐行审查 + 真实字节/落库测试，2026-10-23）
+
+对应清单：v1.4.0 端侧智能统一入口／v1.4.1 意图分类（规则可插拔）／v1.4.2 敏感前置过滤／v1.4.3 BLE 网关协议／v1.4.4 "音频不出端"可验证证明。
+
+### 一、逐行审查发现的 4 类真实缺陷（旧 internal/edge 291 行，且全工程零引用——孤岛）
+
+1. **v1.4.1 意图分类**：唤醒词硬编码成第三方"小爱同学"；命令句带问号被误判为闲聊（`?` 先于命令规则命中）；Classifier 接口定义了却只有一个实现，"可插拔"未兑现。
+2. **v1.4.2 敏感过滤**：只匹配"手机号"等词本身，**不匹配号码**——直接说"卡号6222…"完全漏掉；无手机号/身份证/银行卡/邮箱正则。
+3. **v1.4.4 审计违第三原则**：`hasAudio` 是调用方传入的 bool，审计层从不检查 body——这是"可声明"不是"可验证"，一个有 bug 的出端代码谎称 hasAudio=false 即可绕过；白名单是假域名 `api.im2a.chat`。
+4. **v1.4.3 BLE**：只有内存设备 map，没有任何真实帧格式/CRC，无法对应 flutter_blue_plus 的 notify/write；整个 edge 包没有被任何服务/API 引用（孤岛）。
+
+### 二、真实修复
+
+- **intent.go（重写）**：自有产品唤醒词（你好管家/嘿管家/管家管家/助手）；分类顺序改为 唤醒词 > 命令 > 问句 > 未知，"帮我打开空调？"正确判为 command；`NewCustomClassifier` 支持覆盖词表，接口可插拔由测试验证。
+- **sensitive.go（重写）**：关键词（密码/身份证号/银行卡号…）+ 正则双通道（手机号 `1[3-9]\d{9}`、身份证 `\d{17}[\dXx]`、银行卡 `\d{16,19}`、邮箱）。**正则顺序修正为长串优先**（身份证→银行卡→手机号），修复了"手机号正则从身份证中间截 11 位、hits 错标 mobile"的真实 bug；命中即号码本身替换为 `[已脱敏]`，号码不出端。
+- **egress.go（新建，替代旧 audit.go）**：`EgressGuard.Allow(endpoint, body []byte)` **真实扫描待出端字节**——检测音频 magic（RIFF/WAVE、ID3、OggS、fLaC、ftyp、mp3 sync）、超大二进制（>64KB）、JSON 中的 audio/pcm/wave/voice/speech 字段名；非白名单 host 直接拒绝。不再信任调用方传的 bool。
+- **ble.go（重写）**：定义真实 GATT 帧 `[0xAA][len2][cmd][payload][crc8]`（CRC-8/SMBUS poly 0x07），`Encode/Decode` 往返、坏 SOF/坏 CRC/超长 payload 全部拒绝；命令字 电池上报/意图文本/ACK/拒绝；`OnFrame` 电量更新。Flutter 端 flutter_blue_plus 的 write/notify 复用同一帧格式。
+- **edge.go（重写）**：Pipeline 串联 唤醒→意图→敏感→`EgressGuard` 出端裁决；出端 body 仅文本 JSON（绝无音频字节）。
+- **接线**：新建 `internal/api/edge.go`，端点 `POST /v1/edge/pipeline`、`GET /v1/edge/egress/report`；每次出端裁决**真实落 audit_events**（action=`edge_egress`，decision=allow/block，detail=分类/命中原因/脱敏结果），edge 包不再是孤岛。
+
+### 三、真实测试（非 mock）
+
+- `internal/edge/edge_test.go`（重写）：意图（自有唤醒词、命令优先于问句、可插拔自定义词表）；敏感正则（纯手机号不含"手机号"字样也拦截、身份证、邮箱、正常文本放行）；EgressGuard（白名单文本 allow、非白名单 host 拒、**构造真实 WAV/MP3 字节即使调用方没声明音频也拒**、JSON 含 audio 字段拒、超大 body 拒）；BLE 帧（往返一致、篡改字节 CRC 失败、坏 SOF、超长 payload、电量帧）。全部 PASS。
+- `internal/api/v14_real_test.go`（连真实 PG，3 用例 PASS）：正常命令 allow；纯手机号 block 且脱敏文本不含原号码；报告接口从 audit_events 真实统计 total/blocked，并直查库断言身份证拦截记录存在。
+- `go build ./...`、`go vet ./internal/edge/... ./internal/api/...` clean。
+
+### 四、生产端到端（106.53.197.47，网关已重编译重启 active）
+
+- `POST /v1/edge/pipeline {"text":"帮我打开空调"}` → `category=command, egress_allowed=true`。
+- `{"text":"联系我 13812345678 即可"}` → `blocked=true, hits=[mobile:13812345678], redacted="联系我 [已脱敏] 即可", should_upload=false`。
+- `{"text":"我的身份证110101199003071234"}` → `blocked=true, hits=[idcard:110101...], redacted="我的身份证[已脱敏]"`（长串优先 bug 已修）。
+- `GET /v1/edge/egress/report` → 从 PG 真实返回 `total=11, blocked=6`，violations 含每条拦截的 reason/detail；PSQL 实查 `edge_egress` allow/block 分组计数一致。
+
+### 五、已知边界（如实记录）
+
+- 服务端 `/v1/edge/pipeline` 是端侧管道的**开发联调替身**，用同一套 internal/edge 逻辑；真机上端侧管道应在 Flutter/端侧运行同一逻辑（Dart 移植或 FFI），本端点负责联调与审计落库。
+- BLE 目前是 Go 协议层（帧/CRC/编解码真实可测）；真实 flutter_blue_plus 扫描/连接/notify/write 因本机与服务器均无 Flutter SDK，**未实机跑**，但帧格式已固定，端侧直接复用。
+- EgressGuard 的 host 白名单为可配置；当前演示 host 含 106.53.197.47/localhost，正式域名落地时改配置即可。
