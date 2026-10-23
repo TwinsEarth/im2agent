@@ -14,6 +14,7 @@ func (d *Deps) AdminMux() http.Handler {
 	mux.HandleFunc("GET /v1/admin/payments", d.adminPayments)
 	mux.HandleFunc("GET /v1/admin/agents", d.adminAgents)
 	d.adminSupportRegister(mux)
+	d.auditViewRegister(mux)
 	return mux
 }
 
@@ -274,6 +275,10 @@ button{background:var(--acc);border:0;color:#fff;border-radius:8px;padding:9px 1
 .ticket textarea{width:100%;background:#0d131a;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px;margin-top:6px;font:inherit}
 .tbtn{background:var(--card);border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:5px 12px;font-size:12px;margin:6px 6px 0 0;cursor:pointer}
 .tbtn.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.amsg{background:#0d131a;border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin:5px 0;font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.afin{background:#0d131a;border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:6px 8px;margin-right:6px;font:inherit;font-size:13px}
+.step{border-left:2px solid var(--acc);padding:4px 0 4px 12px;margin:4px 0;font-size:13px}
+.dok{color:var(--ok)}.dbad{color:var(--bad)}
 </style></head><body>
 <h1>IM2A 运营后台</h1>
 <div class="sub">人机混合 IM · 实时运营仪表盘 · 数据来自生产 PG 实时聚合 · 10 秒自动刷新</div>
@@ -299,6 +304,16 @@ button{background:var(--acc);border:0;color:#fff;border-radius:8px;padding:9px 1
  <button class="tbtn" data-f="4" onclick="setFilter(4)">已关闭</button>
 </div>
 <div id="ticketlist"></div></div>
+<div class="sec"><h2>审计与门控决策回放</h2>
+<div id="auditagg" class="sub" style="margin-bottom:10px"></div>
+<div style="margin-bottom:10px">
+ <input class="afin" id="af_action" placeholder="action（如 ticket_decision）">
+ <input class="afin" id="af_decision" placeholder="decision（如 approved / block）">
+ <input class="afin" id="af_trace" placeholder="trace_id">
+ <button class="tbtn" onclick="loadAudit()">查询</button>
+</div>
+<div id="replay"></div>
+<div id="auditlist"></div></div>
 <script>
 var CARDS=[
  ["users_total","用户总数"],["im_accounts","IM 账号"],["agent_capabilities","Agent 能力"],
@@ -373,13 +388,50 @@ function loadTickets(){
   }).join("")||'<div class="sub">无工单</div>';
  }).catch(function(){});
 }
+
+function dclass(d){return (d==="approved"||d==="allow"||d==="ok")?"dok":((d==="rejected"||d==="block"||d==="blocked")?"dbad":"");}
+function loadAuditAgg(){
+ return jget("/v1/admin/audit/aggregate").then(function(r){
+  var pills=(r.decisions||[]).map(function(x){return '<span class="pill">'+esc(x.k||"未决")+' '+x.v+'</span>';}).join(" ");
+  document.getElementById("auditagg").innerHTML="事件总数 <b>"+r.total+"</b>　"+pills;
+ }).catch(function(){});
+}
+function loadAudit(){
+ var qs=[];
+ var av=document.getElementById("af_action").value.trim();
+ var dv=document.getElementById("af_decision").value.trim();
+ var tv=document.getElementById("af_trace").value.trim();
+ if(av)qs.push("action="+encodeURIComponent(av));
+ if(dv)qs.push("decision="+encodeURIComponent(dv));
+ if(tv)qs.push("trace_id="+encodeURIComponent(tv));
+ return jget("/v1/admin/audit/stream?"+qs.join("&")+"&limit=200").then(function(r){
+  document.getElementById("auditlist").innerHTML=(r.events||[]).map(function(e){
+   return '<div class="amsg"><span class="who">'+esc(e.occurred_at).slice(0,19)+'</span><b>'+esc(e.action)+'</b>'+
+    '<span class="pill '+dclass(e.decision)+'">'+esc(e.decision||"—")+'</span>'+
+    '<span class="who">'+esc(e.agent_id||"")+'</span>'+
+    '<span class="who">trace: '+esc(e.trace_id||"").slice(0,28)+'</span>'+
+    (e.trace_id?'<button class="tbtn" onclick="replayTrace(\''+esc(e.trace_id)+'\')">回放</button>':"")+'</div>';
+  }).join("")||'<div class="sub">无事件</div>';
+ }).catch(function(){});
+}
+function replayTrace(tr){
+ jget("/v1/admin/audit/trace/"+encodeURIComponent(tr)).then(function(r){
+  var html='<div class="ticket"><div class="th"><div><b>决策回放</b> <span class="pill">'+esc(r.trace_id)+'</span></div><div class="who">'+r.steps+' 步</div></div>';
+  html+=(r.events||[]).map(function(e,i){
+   return '<div class="step"><span class="who">'+(i+1)+' · '+esc(e.occurred_at).slice(11,19)+'</span><b>'+esc(e.action)+'</b> <span class="'+dclass(e.decision)+'">'+esc(e.decision||"—")+'</span><div class="who">'+esc(JSON.stringify(e.detail))+'</div></div>';
+  }).join("");
+  html+='</div>';
+  document.getElementById("replay").innerHTML=html;
+ }).catch(function(){});
+}
+
 function replyTicket(id,status){
  var c=document.getElementById("tr_"+id).value.trim();if(!c)return;
  jpost("/v1/admin/tickets/"+id+"/reply",{author:"kefu",assignee:"kefu",content:c,status:status}).then(function(){loadTickets();});
 }
 function closeTicket(id){jpost("/v1/admin/tickets/"+id+"/status",{status:4,assignee:"kefu"}).then(function(){loadTickets();});}
 
-function loadAll(){load().then(function(){return loadDetails().catch(function(){}).then(function(){return loadTickets();});});}
+function loadAll(){load().then(function(){return loadDetails().catch(function(){}).then(function(){return loadTickets();}).then(function(){loadAuditAgg();loadAudit();});});}
 window.addEventListener("load",function(){
  var t=localStorage.getItem("im2a_admin_tok");if(t){document.getElementById("tok").value=t;loadAll();}
  setInterval(function(){if(document.getElementById("tok").value.trim())loadAll();},10000);
