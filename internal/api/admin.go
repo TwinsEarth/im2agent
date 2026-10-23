@@ -385,7 +385,7 @@ function jpost(path,body){
  var tok=document.getElementById("tok").value.trim();
  return fetch(path,{method:"POST",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.json();});
 }
-function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
 function setFilter(f){tFilter=f;
  var btns=document.querySelectorAll("#ticketfilter,.tbtn");
  Array.prototype.forEach.call(document.querySelectorAll('[data-f]'),function(b){b.className="tbtn"+(Number(b.getAttribute("data-f"))===f?" on":"");});
