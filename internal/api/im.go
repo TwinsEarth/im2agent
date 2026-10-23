@@ -167,6 +167,7 @@ func (d *Deps) IMMux() http.Handler {
 		if d.DB != nil {
 			applyReadReceipt(d.DB, ev)
 			applyGroupMembership(d.DB, ev)
+			applyInboundMessage(d.DB, ev) // v1.7.5：普通 C2C 消息入站镜像
 		}
 		writeJSON(w, 200, map[string]any{
 			"action": "allow", "eventType": ev.CallbackType,
@@ -179,6 +180,8 @@ func (d *Deps) IMMux() http.Handler {
 	// v1.7.1: 关系档位查询 / 手动设档。
 	mux.HandleFunc("GET /v1/im/relations", d.listRelations)
 	mux.HandleFunc("POST /v1/im/relations", d.upsertRelation)
+	mux.HandleFunc("GET /v1/im/messages", d.listIMMessages)   // v1.7.5
+	mux.HandleFunc("GET /v1/im/unread", d.imUnreadCount)        // v1.7.5
 
 	// v1.2.0: 真实发送单聊（未配置腾讯云凭证返回 503，绝不假装成功）。
 	mux.HandleFunc("POST /v1/im/send", func(w http.ResponseWriter, r *http.Request) {
@@ -196,6 +199,12 @@ func (d *Deps) IMMux() http.Handler {
 			log.Printf("tim send c2c error: %v", err)
 			writeErr(w, 502, err.Error())
 			return
+		}
+		// v1.7.5：出站成功后本地镜像为 sent（幂等）。
+		if d.DB != nil && rcpt.MsgKey != "" {
+			_, _ = d.DB.Exec(`INSERT INTO im_messages(msg_key,from_user,to_user,dir,text)
+				VALUES($1,$2,$3,'sent',$4) ON CONFLICT (msg_key) DO NOTHING`,
+				rcpt.MsgKey, rcpt.From, rcpt.To, req.Text)
 		}
 		writeJSON(w, 200, rcpt)
 	})
@@ -506,4 +515,81 @@ VALUES ($1,$2,'member') ON CONFLICT (group_id, user_id) DO NOTHING`, ev.GroupID,
 			log.Printf("group delete member %s/%s: %v", ev.GroupID, member, err)
 		}
 	}
+}
+
+
+// v1.7.5：普通 C2C 消息入站镜像为 recv（群消息/已读/关系事件不进此表）。
+func applyInboundMessage(db *sql.DB, ev im.WebhookEvent) {
+	if ev.GroupID != "" || ev.MsgKey == "" || ev.FromUserID == "" || ev.ToUserID == "" {
+		return
+	}
+	text := extractInboundText(ev.MsgBody)
+	_, _ = db.Exec(`INSERT INTO im_messages(msg_key,from_user,to_user,dir,text)
+		VALUES($1,$2,$3,'recv',$4) ON CONFLICT (msg_key) DO NOTHING`,
+		ev.MsgKey, ev.FromUserID, ev.ToUserID, text)
+}
+
+// 从腾讯云 MsgBody 尽力提取文本（结构可能是 [{MsgContent:{Text:...}}]）。
+func extractInboundText(body []any) string {
+	for _, b := range body {
+		m, ok := b.(map[string]any)
+		if !ok {
+			continue
+		}
+		if mc, ok := m["MsgContent"].(map[string]any); ok {
+			if t, ok := mc["Text"].(string); ok {
+				return t
+			}
+		}
+		if t, ok := m["Text"].(string); ok {
+			return t
+		}
+	}
+	return ""
+}
+
+// GET /v1/im/messages?user_id=&peer= 双向会话历史（最近 100 条）。
+func (d *Deps) listIMMessages(w http.ResponseWriter, r *http.Request) {
+	uid := r.URL.Query().Get("user_id")
+	peer := r.URL.Query().Get("peer")
+	if uid == "" || peer == "" {
+		writeErr(w, 400, "user_id and peer required")
+		return
+	}
+	rows, err := d.DB.Query(`SELECT msg_key, from_user, to_user, dir, text, extract(epoch from created_at)::bigint
+		FROM im_messages
+		WHERE (from_user=$1 AND to_user=$2) OR (from_user=$2 AND to_user=$1)
+		ORDER BY created_at DESC LIMIT 100`, uid, peer)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var mk, fr, to, dir, txt string
+		var at int64
+		_ = rows.Scan(&mk, &fr, &to, &dir, &txt, &at)
+		out = append(out, map[string]any{"msg_key": mk, "from": fr, "to": to, "dir": dir, "text": txt, "at": at})
+	}
+	writeJSON(w, 200, map[string]any{"user_id": uid, "peer": peer, "messages": out})
+}
+
+// GET /v1/im/unread?user_id= 该用户收到但未读的消息数。
+func (d *Deps) imUnreadCount(w http.ResponseWriter, r *http.Request) {
+	uid := r.URL.Query().Get("user_id")
+	if uid == "" {
+		writeErr(w, 400, "user_id required")
+		return
+	}
+	var n int
+	err := d.DB.QueryRow(`SELECT count(*) FROM im_messages m
+		WHERE m.to_user=$1 AND m.dir='recv'
+		  AND NOT EXISTS (SELECT 1 FROM im_read_receipts rr
+		                  WHERE rr.owner_id=$1 AND rr.msg_key=m.msg_key)`, uid).Scan(&n)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"user_id": uid, "unread": n})
 }

@@ -34,6 +34,7 @@ func newDBDeps(t *testing.T) *Deps {
 		`CREATE TABLE IF NOT EXISTS im_relations(owner_id TEXT, peer_id TEXT, trust_level INT NOT NULL DEFAULT 3, status TEXT NOT NULL DEFAULT 'friend', source TEXT NOT NULL DEFAULT 'webhook', updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(owner_id,peer_id))`,
 		`CREATE TABLE IF NOT EXISTS im_read_receipts(owner_id TEXT, peer_id TEXT, msg_key TEXT, read_at TIMESTAMPTZ NOT NULL DEFAULT now(), source TEXT NOT NULL DEFAULT 'webhook', PRIMARY KEY(owner_id,peer_id,msg_key))`,
 		`CREATE TABLE IF NOT EXISTS im_push_credentials(user_id TEXT, platform TEXT, cert_ref TEXT DEFAULT '', device_token TEXT DEFAULT '', updated_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY(user_id,platform))`,
+		`CREATE TABLE IF NOT EXISTS im_messages(msg_key TEXT PRIMARY KEY, from_user TEXT NOT NULL, to_user TEXT NOT NULL, msg_type TEXT NOT NULL DEFAULT 'TIMTextElem', dir TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
 		`CREATE TABLE IF NOT EXISTS im_push_tasks(id BIGSERIAL PRIMARY KEY, user_id TEXT, msg_key TEXT, title TEXT DEFAULT '', body TEXT DEFAULT '', status TEXT DEFAULT 'pending', attempts INT DEFAULT 0, last_error TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`,
 		`CREATE TABLE IF NOT EXISTS offline_approvals(id SERIAL PRIMARY KEY, user_id TEXT,
 		 ticket_id TEXT, decision TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), synced BOOLEAN NOT NULL DEFAULT false)`,
