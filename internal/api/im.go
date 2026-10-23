@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"human-agent-im/internal/eventbus"
 	"human-agent-im/internal/im"
+	"human-agent-im/internal/trustzone"
 )
 
 // pgGroupRepo 用真实 PostgreSQL 实现 im.GroupRepo。
@@ -157,6 +159,10 @@ func (d *Deps) IMMux() http.Handler {
 			}
 		}
 		// 腾讯云要求回调返回 200（否则重试），幂等重复也返回 200。
+		// v1.7.1: 关系链/好友回调驱动五档信任矩阵（真实落 im_relations）。
+		if d.DB != nil {
+			applyRelationEvent(d.DB, ev)
+		}
 		writeJSON(w, 200, map[string]any{
 			"action": "allow", "eventType": ev.CallbackType,
 			"from": ev.FromUserID, "to": ev.ToUserID, "group": ev.GroupID,
@@ -164,6 +170,10 @@ func (d *Deps) IMMux() http.Handler {
 			"duplicated": duplicated, "persisted": d.DB != nil,
 		})
 	})
+
+	// v1.7.1: 关系档位查询 / 手动设档。
+	mux.HandleFunc("GET /v1/im/relations", d.listRelations)
+	mux.HandleFunc("POST /v1/im/relations", d.upsertRelation)
 
 	// v1.2.0: 真实发送单聊（未配置腾讯云凭证返回 503，绝不假装成功）。
 	mux.HandleFunc("POST /v1/im/send", func(w http.ResponseWriter, r *http.Request) {
@@ -335,3 +345,109 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
+
+// applyRelationEvent v1.7.1：把关系链类回调归一为五档信任档位变更。
+// 加好友默认 L3 已知（接收留言摘要，对外回复需审批）；删好友降级 L4 陌生。
+func applyRelationEvent(db *sql.DB, ev im.WebhookEvent) {
+	owner, peer := ev.FromUserID, ev.ToUserID
+	if owner == "" || peer == "" {
+		return
+	}
+	switch {
+	case containsAny(ev.CallbackType, "FriendAdd", "FriendImport", "RelationAdd", "FriendUpdate"):
+		upsimRelation(db, owner, peer, int(trustzone.LevelKnown), "friend", "webhook")
+	case containsAny(ev.CallbackType, "FriendDelete"):
+		upsimRelation(db, owner, peer, int(trustzone.LevelStranger), "deleted", "webhook")
+	}
+}
+
+func upsimRelation(db *sql.DB, owner, peer string, level int, status, source string) {
+	_, err := db.Exec(`
+INSERT INTO im_relations(owner_id, peer_id, trust_level, status, source, updated_at)
+VALUES ($1,$2,$3,$4,$5, now())
+ON CONFLICT (owner_id, peer_id) DO UPDATE SET
+  trust_level=EXCLUDED.trust_level, status=EXCLUDED.status,
+  source=EXCLUDED.source, updated_at=now()`,
+		owner, peer, level, status, source)
+	if err != nil {
+		log.Printf("im_relations upsert %s->%s: %v", owner, peer, err)
+	}
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, x := range subs {
+		if strings.Contains(s, x) {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *Deps) listRelations(w http.ResponseWriter, r *http.Request) {
+	if d.DB == nil {
+		writeJSON(w, 503, map[string]any{"error": "db unavailable"})
+		return
+	}
+	owner := r.URL.Query().Get("owner")
+	if owner == "" {
+		writeErr(w, 400, "missing owner")
+		return
+	}
+	rows, err := d.DB.Query(`SELECT peer_id, trust_level, status, source
+		FROM im_relations WHERE owner_id=$1 ORDER BY updated_at DESC`, owner)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	type rel struct {
+		Peer      string `json:"peer"`
+		Level     int    `json:"level"`
+		LevelName string `json:"levelName"`
+		Status    string `json:"status"`
+		Source    string `json:"source"`
+	}
+	out := []rel{}
+	for rows.Next() {
+		var p, st, src string
+		var lv int
+		if err := rows.Scan(&p, &lv, &st, &src); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		out = append(out, rel{p, lv, trustzone.Level(lv).String(), st, src})
+	}
+	writeJSON(w, 200, map[string]any{"owner": owner, "relations": out})
+}
+
+func (d *Deps) upsertRelation(w http.ResponseWriter, r *http.Request) {
+	if d.DB == nil {
+		writeJSON(w, 503, map[string]any{"error": "db unavailable"})
+		return
+	}
+	var req struct {
+		Owner  string `json:"owner"`
+		Peer   string `json:"peer"`
+		Level  int    `json:"level"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "bad body")
+		return
+	}
+	if req.Owner == "" || req.Peer == "" {
+		writeErr(w, 400, "missing owner/peer")
+		return
+	}
+	if req.Level < 0 || req.Level > 4 {
+		writeErr(w, 400, "level must be 0..4")
+		return
+	}
+	status := req.Status
+	if status == "" {
+		status = "friend"
+	}
+	upsimRelation(d.DB, req.Owner, req.Peer, req.Level, status, "manual")
+	writeJSON(w, 200, map[string]any{"ok": true, "owner": req.Owner, "peer": req.Peer,
+		"level": req.Level, "levelName": trustzone.Level(req.Level).String(), "status": status})
+}

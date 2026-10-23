@@ -31,6 +31,7 @@ func newDBDeps(t *testing.T) *Deps {
 		 via_device TEXT NOT NULL, updated_at BIGINT NOT NULL DEFAULT 0,
 		 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY, user_id TEXT, type TEXT, last_seen TIMESTAMPTZ)`,
+		`CREATE TABLE IF NOT EXISTS im_relations(owner_id TEXT, peer_id TEXT, trust_level INT NOT NULL DEFAULT 3, status TEXT NOT NULL DEFAULT 'friend', source TEXT NOT NULL DEFAULT 'webhook', updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY(owner_id,peer_id))`,
 		`CREATE TABLE IF NOT EXISTS offline_approvals(id SERIAL PRIMARY KEY, user_id TEXT,
 		 ticket_id TEXT, decision TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), synced BOOLEAN NOT NULL DEFAULT false)`,
 	}
