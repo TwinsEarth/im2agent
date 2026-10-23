@@ -45,7 +45,17 @@ func TestV178_SupportTicketLifecycle(t *testing.T) {
 	if !strings.HasPrefix(ticketNo, "ST-") || t0["status"].(float64) != 1 {
 		t.Fatalf("bad ticket_no/status: %v", t0)
 	}
-	t.Cleanup(func() { d.DB.Exec(`DELETE FROM support_tickets WHERE id=$1`, tid) })
+	// WORM 审计表：删除工单 CREATED 审计需临时关触发器。
+	if _, err := d.DB.Exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`); err != nil {
+		t.Skipf("need superuser to temp-disable audit triggers: %v", err)
+	}
+	t.Cleanup(func() {
+		d.DB.Exec(`DELETE FROM support_ticket_replies WHERE ticket_id=$1`, tid)
+		d.DB.Exec(`DELETE FROM support_tickets WHERE id=$1`, tid)
+		d.DB.Exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`)
+		d.DB.Exec(`DELETE FROM audit_events WHERE trace_id=$1`, ticketNo)
+		d.DB.Exec(`ALTER TABLE audit_events ENABLE TRIGGER USER`)
+	})
 
 	// 2. 客服待处理列表能看到
 	code, list := v178Req(adminMux, "GET", "/v1/admin/tickets?status=1", "")
