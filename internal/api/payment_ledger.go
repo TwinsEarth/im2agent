@@ -31,7 +31,7 @@ func (d *Deps) paidCharge(w http.ResponseWriter, r *http.Request) {
 	const dailyLimit = 10
 	if d.DB != nil {
 		var todayCount int
-		_ = d.DB.QueryRow(`SELECT COUNT(*) FROM payment_ledger WHERE sender_id=$1 AND created_at >= CURRENT_DATE`,
+		_ = d.DB.QueryRow(`SELECT COUNT(*) FROM payment_ledger_legacy_v09 WHERE sender_id=$1 AND created_at >= CURRENT_DATE`,
 			req.SenderID).Scan(&todayCount)
 		if todayCount >= dailyLimit {
 			writeErr(w, 429, "daily limit exceeded (10/day)")
@@ -42,12 +42,12 @@ func (d *Deps) paidCharge(w http.ResponseWriter, r *http.Request) {
 	// 幂等：message_id 唯一冲突则返回原结果
 	if d.DB != nil {
 		var status string
-		err := d.DB.QueryRow(`SELECT status FROM payment_ledger WHERE message_id=$1`, req.MessageID).Scan(&status)
+		err := d.DB.QueryRow(`SELECT status FROM payment_ledger_legacy_v09 WHERE message_id=$1`, req.MessageID).Scan(&status)
 		if err == nil {
 			writeJSON(w, 200, map[string]any{"messageId": req.MessageID, "status": status, "idempotent": true})
 			return
 		}
-		_, err = d.DB.Exec(`INSERT INTO payment_ledger(message_id, sender_id, receiver_id, amount_cents, mode, status)
+		_, err = d.DB.Exec(`INSERT INTO payment_ledger_legacy_v09(message_id, sender_id, receiver_id, amount_cents, mode, status)
 			VALUES($1,$2,$3,$4,$5,$6)`,
 			req.MessageID, req.SenderID, req.ReceiverID, req.AmountCents, req.Mode, "charged")
 		if err != nil {
@@ -64,7 +64,7 @@ func (d *Deps) paidList(w http.ResponseWriter, r *http.Request) {
 	list := []map[string]any{}
 	if d.DB != nil {
 		rows, _ := d.DB.Query(`SELECT message_id, sender_id, receiver_id, amount_cents, mode, status, created_at
-			FROM payment_ledger WHERE sender_id=$1 OR receiver_id=$1 ORDER BY id DESC LIMIT 50`, uid)
+			FROM payment_ledger_legacy_v09 WHERE sender_id=$1 OR receiver_id=$1 ORDER BY id DESC LIMIT 50`, uid)
 		if rows != nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -105,7 +105,7 @@ func (d *Deps) paidOpen(w http.ResponseWriter, r *http.Request) {
 		var sender, receiver string
 		var amount int64
 		var status string
-		err := d.DB.QueryRow(`SELECT sender_id, receiver_id, amount_cents, status FROM payment_ledger WHERE message_id=$1`,
+		err := d.DB.QueryRow(`SELECT sender_id, receiver_id, amount_cents, status FROM payment_ledger_legacy_v09 WHERE message_id=$1`,
 			req.MessageID).Scan(&sender, &receiver, &amount, &status)
 		if err != nil {
 			writeErr(w, 404, "message not found")
@@ -119,7 +119,7 @@ func (d *Deps) paidOpen(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, map[string]any{"messageId": req.MessageID, "charged": true, "idempotent": true})
 			return
 		}
-		_, _ = d.DB.Exec(`UPDATE payment_ledger SET status=$1, mode=$2 WHERE message_id=$3`,
+		_, _ = d.DB.Exec(`UPDATE payment_ledger_legacy_v09 SET status=$1, mode=$2 WHERE message_id=$3`,
 			"charged", "pay_open", req.MessageID)
 		writeJSON(w, 200, map[string]any{"messageId": req.MessageID, "charged": true, "amountCents": amount, "mode": "pay_open"})
 		return
@@ -135,12 +135,12 @@ func (d *Deps) paidRefund(w http.ResponseWriter, r *http.Request) {
 	if req.MessageID == "" { writeErr(w, 400, "messageId required"); return }
 	if d.DB != nil {
 		var status string
-		d.DB.QueryRow(`SELECT status FROM payment_ledger WHERE message_id=$1`, req.MessageID).Scan(&status)
+		d.DB.QueryRow(`SELECT status FROM payment_ledger_legacy_v09 WHERE message_id=$1`, req.MessageID).Scan(&status)
 		if status == "refunded" {
 			writeJSON(w, 200, map[string]any{"messageId": req.MessageID, "refunded": true, "idempotent": true})
 			return
 		}
-		_, err := d.DB.Exec(`UPDATE payment_ledger SET status=$1 WHERE message_id=$2`, "refunded", req.MessageID)
+		_, err := d.DB.Exec(`UPDATE payment_ledger_legacy_v09 SET status=$1 WHERE message_id=$2`, "refunded", req.MessageID)
 		if err != nil { writeErr(w, 500, err.Error()); return }
 	}
 	writeJSON(w, 200, map[string]any{"messageId": req.MessageID, "refunded": true})

@@ -31,7 +31,7 @@ func (d *Deps) AdminMetrics(w http.ResponseWriter, r *http.Request) {
 		tables := map[string]string{
 			"im2a_messages_total":    "SELECT COUNT(*) FROM messages",
 			"im2a_audit_events_total": "SELECT COUNT(*) FROM audit_events",
-			"im2a_ledger_total":       "SELECT COUNT(*) FROM payment_ledger",
+			"im2a_ledger_total":       "SELECT COUNT(*) FROM payment_ledger_legacy_v09",
 			"im2a_devices_total":      "SELECT COUNT(*) FROM devices",
 		}
 		for name, q := range tables {
