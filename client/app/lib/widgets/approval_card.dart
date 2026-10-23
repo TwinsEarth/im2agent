@@ -1,89 +1,83 @@
-/// 审批卡片组件（§7.1）：哪个子 Agent 发起 → 做了什么 → 建议动作 → 信任档位 → 一键操作。
-library;
+// v1.3.1: 审批卡片——通过/修改/驳回/超时升级。
+import "package:flutter/material.dart";
 
-import 'package:flutter/material.dart';
+class ApprovalTicket {
+  final String id;
+  final String title;
+  final String summary;
+  final String agentId;
+  final String state;
+  final DateTime deadline;
+  final Map<String, dynamic> payload;
 
-import '../models/approval_ticket.dart';
+  ApprovalTicket({required this.id, required this.title, required this.summary,
+    required this.agentId, required this.state, required this.deadline, required this.payload});
+
+  Duration get remain => deadline.difference(DateTime.now());
+  bool get isUrgent => remain.inMinutes < 30;
+  bool get isTimeout => remain.isNegative;
+}
 
 class ApprovalCard extends StatelessWidget {
-  const ApprovalCard({
-    super.key,
-    required this.ticket,
-    required this.onApprove,
-    required this.onModify,
-    required this.onReject,
-  });
-
   final ApprovalTicket ticket;
   final VoidCallback onApprove;
-  final VoidCallback onModify;
   final VoidCallback onReject;
+  final VoidCallback onModify;
+  final VoidCallback? onEscalate;
+
+  const ApprovalCard({super.key, required this.ticket, required this.onApprove,
+    required this.onReject, required this.onModify, this.onEscalate});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final urgent = ticket.isUrgent;
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: const EdgeInsets.all(12),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  child: Text(ticket.sourceAgentName.characters.first),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(ticket.sourceAgentName,
-                          style: theme.textTheme.titleMedium),
-                      Text(ticket.summary,
-                          style: theme.textTheme.bodyMedium),
-                    ],
-                  ),
-                ),
-                Chip(
-                  label: Text(ticket.trustZone,
-                      style: const TextStyle(fontSize: 11)),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            CircleAvatar(child: Text(ticket.agentId.substring(0, 1).toUpperCase())),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(ticket.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(ticket.agentId, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+            ])),
+            if (urgent) Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: Colors.red[100], borderRadius: BorderRadius.circular(4)),
+              child: Text(ticket.isTimeout ? "已超时" : "${ticket.remain.inMinutes}分钟",
+                style: const TextStyle(color: Colors.red, fontSize: 12)),
             ),
-            const SizedBox(height: 10),
-            Text(ticket.detail, style: theme.textTheme.bodySmall),
+          ]),
+          const SizedBox(height: 12),
+          Text(ticket.summary),
+          if (ticket.isTimeout && onEscalate != null) ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onEscalate,
+                icon: const Icon(Icons.notification_important, color: Colors.red),
+                label: const Text("已超时，紧急升级（短信/电话）",
+                    style: TextStyle(color: Colors.red)),
+              ),
+            ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Text('金额: ${ticket.amountLabel}',
-                    style: theme.textTheme.labelMedium),
-                const SizedBox(width: 16),
-                Text('截止: ${_fmt(ticket.deadline)}',
-                    style: theme.textTheme.labelMedium),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(onPressed: onReject, child: const Text('驳回')),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                    onPressed: onModify, child: const Text('修改')),
-                const SizedBox(width: 8),
-                FilledButton(onPressed: onApprove, child: const Text('通过')),
-              ],
-            ),
           ],
-        ),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: FilledButton.icon(
+              onPressed: onApprove, icon: const Icon(Icons.check), label: const Text("通过"))),
+            const SizedBox(width: 8),
+            Expanded(child: OutlinedButton.icon(
+              onPressed: onModify, icon: const Icon(Icons.edit), label: const Text("修改"))),
+            const SizedBox(width: 8),
+            Expanded(child: TextButton.icon(
+              onPressed: onReject, icon: const Icon(Icons.close), label: const Text("驳回"),
+              style: TextButton.styleFrom(foregroundColor: Colors.red))),
+          ]),
+        ]),
       ),
     );
   }
-
-  static String _fmt(DateTime t) =>
-      '${t.month}/${t.day} ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 }

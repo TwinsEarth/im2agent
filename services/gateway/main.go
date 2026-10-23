@@ -13,6 +13,8 @@ import (
 	"net/http/httptest"
 	"os"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"human-agent-im/internal/api"
 	"human-agent-im/internal/auth"
 	"human-agent-im/internal/ratelimit"
@@ -40,10 +42,19 @@ func main() {
 		api.HealthHandler("gateway")(w, r)
 	})
 
-	// 事件流查询（经过认证）— 用 deps.Bus（与 memory/distill/model 同源）
-	mux.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
-		events := deps.Bus.List()
-		json.NewEncoder(w).Encode(map[string]any{"events": events, "count": len(events)})
+	// 根路径：欢迎页（不经过认证/限流），方便用户直接打开 IP 验证
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{
+			"service": "IM2A Gateway",
+			"status":  "ok",
+			"docs":    "/healthz, /v1/events, /v1/trust/, /v1/approvals/, /v1/negotiations/, /v1/paid/, /v1/compliance/, /v1/msg/, /v1/memory/, /v1/distill/, /v1/model/",
+			"token":   "Authorization: Bearer im2a_demo_token",
+		})
 	})
 
 	// 中间件链：认证 → 限流
@@ -53,6 +64,25 @@ func main() {
 		h = ratelimit.IPLimit(h, 100, 200) // 100 rps, burst 200
 		return h
 	}
+
+	// v1.1.3：通用 WS 端点 /v1/ws?topic=xxx[&access_token=...]（v1.1 审查：纳入认证+限流，修复匿名越权订阅）
+	mux.Handle("/v1/ws", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		topic := r.URL.Query().Get("topic")
+		if topic == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing topic"})
+			return
+		}
+		deps.Stream.HandleWS(topic, w, r)
+	})))
+	// v1.1.4：WS 连接统计（需认证）
+	mux.Handle("/v1/ws/stats", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, deps.Stream.Stats())
+	})))
+	// 事件流查询（经过认证）— 用 deps.Bus（与 memory/distill/model 同源）
+	mux.Handle("/v1/events", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		events := deps.Bus.List()
+		json.NewEncoder(w).Encode(map[string]any{"events": events, "count": len(events)})
+	})))
 
 	// 各服务路由（按前缀分发，经过中间件）
 	mux.Handle("/v1/trust/", wrap(deps.RelationMux("relation-svc")))
@@ -73,6 +103,38 @@ func main() {
 	mux.Handle("/v1/distill/", wrap(deps.DistillMux("distill-svc")))
 
 	// L5 模型层（v0.8）：端侧桩 + 云端兼容
+	// v1.2.2：腾讯云服务器到服务器回调不携带用户 Bearer；webhook 走独立 HMAC 验签（?key 或签名头）。
+	// 其余 /v1/im/ 接口仍强制用户 Token；整体保留限流。
+	imH := deps.IMMux()
+	mux.Handle("/v1/im/", ratelimit.IPLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/im/webhook" {
+			imH.ServeHTTP(w, r)
+			return
+		}
+		auth.RequireToken(imH, token).ServeHTTP(w, r)
+	}), 100, 200))
+	mux.Handle("/v1/intent/", wrap(deps.LLMIntentMux()))
+	mux.Handle("/v1/guard/", wrap(deps.LLMGuardMux()))
+	mux.Handle("/v1/distill/feedback", wrap(deps.LLMDistillMux()))
+	mux.Handle("/v1/route/", wrap(deps.LLMRouterMux()))
+	mux.Handle("/v1/capability/", wrap(deps.CapabilityMux()))
+	mux.Handle("/v1/ledger/", wrap(deps.PaidMux()))
+	mux.Handle("GET /v1/sse/", wrap(http.HandlerFunc(deps.SSEStream)))
+	mux.Handle("POST /v1/sse/publish", wrap(http.HandlerFunc(deps.SSEPublish)))
+	mux.Handle("GET /v1/agent/logs", wrap(http.HandlerFunc(deps.AgentLog)))
+	mux.Handle("POST /v1/watch/approve", wrap(http.HandlerFunc(deps.WatchApprove)))
+	mux.Handle("POST /v1/watch/reject", wrap(http.HandlerFunc(deps.WatchReject)))
+	mux.Handle("POST /v1/watch/escalate", wrap(http.HandlerFunc(deps.WatchEscalate)))
+	mux.Handle("POST /v1/device/register", wrap(http.HandlerFunc(deps.RegisterDevice)))
+	mux.Handle("POST /v1/sync/state", wrap(http.HandlerFunc(deps.SyncState)))
+	mux.Handle("GET /v1/sync/state/", wrap(http.HandlerFunc(deps.GetState)))
+	mux.Handle("POST /v1/offline/submit", wrap(http.HandlerFunc(deps.OfflineSubmit)))
+	mux.Handle("GET /v1/offline/pending", wrap(http.HandlerFunc(deps.OfflineList)))
+	mux.Handle("POST /v1/offline/sync", wrap(http.HandlerFunc(deps.OfflineSync)))
+	// v1.7 运维
+	mux.Handle("GET /v1/admin/metrics", wrap(http.HandlerFunc(deps.AdminMetrics)))
+	mux.Handle("GET /v1/admin/audit", wrap(http.HandlerFunc(deps.AdminAudit)))
+	mux.Handle("GET /v1/admin/health", wrap(http.HandlerFunc(deps.AdminHealth)))
 	mux.Handle("/v1/model/", wrap(api.ModelMux("model-svc", *deps)))
 
 	// 编排器（特殊路由）
@@ -86,9 +148,18 @@ func main() {
 	mux.Handle("/mcp/", wrap(orch.Mux("agent-orchestrator")))
 	mux.Handle("/mcp/skills", wrap(orch.Mux("agent-orchestrator")))
 
+	// v1.2.3：启动审批超时升级
+	deps.StartApprovalEscalator()
+
 	addr := ":" + itoa(*port)
 	log.Printf("gateway listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(v)
 }
 
 func itoa(n int) string {

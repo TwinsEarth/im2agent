@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS paid_message_ledger (
 );
 -- 单日发送上限（按发送方+自然日）由应用层以 (sender_id, created_at::date) 计数，
 -- 这里建索引支撑日限查询。
-CREATE INDEX IF NOT EXISTS idx_ledger_sender_day ON paid_message_ledger(sender_id, (created_at::date));
+CREATE INDEX IF NOT EXISTS idx_ledger_sender_day ON paid_message_ledger(sender_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_ledger_status ON paid_message_ledger(status);
 
 -- 账本状态迁移历史（不可变；charge/refund 各写一条，保证可追溯）

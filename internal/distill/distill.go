@@ -9,7 +9,9 @@ package distill
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"log"
 	"sync"
 
 	"human-agent-im/internal/eventbus"
@@ -62,6 +64,8 @@ type Engine struct {
 	config   Config
 	// tightenedCount 累计收紧次数（用于可解释统计）
 	tightenedCount int
+	// v1.0.3：可选 PG 持久化
+	db *sql.DB
 }
 
 // New 构建蒸馏引擎（用默认规则）。
@@ -76,6 +80,9 @@ func New(bus *eventbus.Bus) *Engine {
 	}
 	return e
 }
+
+// SetPG 注入 PG 持久化（v1.0.3）。
+func (e *Engine) SetPG(db *sql.DB) { e.db = db }
 
 // SetConfig 运行时调整规则（v0.7.3，master 可调用）。
 func (e *Engine) SetConfig(cfg Config) {
@@ -132,6 +139,17 @@ func (e *Engine) Record(userID uint64, agentID, key string, delta float64) {
 		fb.NegStreak++
 		fb.LastDecision = "驳回"
 	}
+	// v1.0.3：异步落 PG improvements
+	if e.db != nil {
+		scn := "通过"
+		if delta < 0 { scn = "驳回" }
+		go func() {
+			if _, err := e.db.Exec(`INSERT INTO improvements (user_id, agent_id, scenario, decision, feedback) VALUES ($1,$2,$3,$4,$5)`,
+				fb.UserID, fb.AgentID, fb.Key, scn, ""); err != nil {
+				log.Printf("distill: persist improvement: %v", err)
+			}
+		}()
+	}
 	// 只收紧不放宽
 	if fb.Tightened {
 		return
@@ -146,6 +164,14 @@ func (e *Engine) Record(userID uint64, agentID, key string, delta float64) {
 
 // publishTighten 发布收紧事件（best-effort）。
 func (e *Engine) publishTighten(fb *DecisionFeedback) {
+	if e.db != nil {
+		go func() {
+			if _, err := e.db.Exec(`INSERT INTO threshold_patches (user_id, agent_id, capability, old_threshold, new_threshold, confidence, reason, auto_applied) VALUES ($1,$2,$3,$4,$5,$6,$7,true)`,
+				fb.UserID, fb.AgentID, fb.Key, 1.0, 0.0, 0.8, fb.TightenReason); err != nil {
+				log.Printf("distill: persist threshold_patch: %v", err)
+			}
+		}()
+	}
 	if e.bus == nil {
 		return
 	}

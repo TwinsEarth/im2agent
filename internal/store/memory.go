@@ -3,6 +3,7 @@ package store
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"human-agent-im/internal/negotiation"
@@ -139,4 +140,19 @@ func (m *MemoryNegotiation) LoadSession(_ context.Context, id string) (*negotiat
 		return nil, ErrNotFound
 	}
 	return s, nil
+}
+
+// ListSessions 最近协商会话（按 CreatedAt 降序）。
+func (m *MemoryNegotiation) ListSessions(_ context.Context, limit int) ([]*negotiation.Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*negotiation.Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	if limit > 0 && limit < len(out) {
+		out = out[:limit]
+	}
+	return out, nil
 }

@@ -75,18 +75,18 @@ services:
       - etcd_data:/etcd-data
 
   # 消息归档全文检索（§2.5；生产接对象存储）
-  opensearch:
-    image: opensearchproject/opensearch:2.14.0
-    container_name: hai-opensearch
-    environment:
-      discovery.type: single-node
-      plugins.security.disabled: "true"
-      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
-    ports:
-      - "9200:9200"
-    volumes:
-      - os_data:/usr/share/opensearch/data
-
+#   opensearch:
+#     image: opensearchproject/opensearch:2.14.0
+#     container_name: hai-opensearch
+#     environment:
+#       discovery.type: single-node
+#       plugins.security.disabled: "true"
+#       OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+#     ports:
+#       - "9200:9200"
+#     volumes:
+#       - os_data:/usr/share/opensearch/data
+# 
 volumes:
   pg_data:
   redis_data:

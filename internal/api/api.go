@@ -15,7 +15,9 @@ import (
 	"human-agent-im/internal/eventbus"
 	"human-agent-im/internal/memory"
 	"human-agent-im/internal/model"
+	"human-agent-im/internal/stream"
 	"human-agent-im/internal/skillruntime"
+	"database/sql"
 	"human-agent-im/internal/store"
 )
 
@@ -27,7 +29,17 @@ type Deps struct {
 	Memory  *memory.GuardedStore // v0.6：Context 三层记忆（带子 Agent 隔离）
 	Bus     *eventbus.Bus       // v0.6.5：事件总线（记忆变更/审批/门控）
 	Distill *distill.Engine     // v0.7：蒸馏闭环（审批反馈→阈值收紧）
-	Model   model.Provider      // v0.8：L5 模型层（端侧桩 + 云端兼容）
+	Model   model.Provider      // v0.8：L5 模型层
+	Stream  *stream.Hub
+	DB     *sql.DB
+	agentCaps map[string]agentCap
+}
+
+// agentCap Agent 注册的能力（门控用）。
+type agentCap struct {
+	TrustMin      int
+	Skills        []string
+	ApprovalAbove int64
 }
 
 // HealthHandler 健康检查。

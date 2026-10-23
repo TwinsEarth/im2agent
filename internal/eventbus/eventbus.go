@@ -6,6 +6,9 @@ package eventbus
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"log"
 	"sync"
 	"time"
 )
@@ -50,6 +53,7 @@ type Bus struct {
 	mu       sync.RWMutex
 	handlers map[EventType][]Handler
 	events   []*Event
+	db       *sql.DB // v1.0.4：可选 PG 审计持久化
 }
 
 // New 创建事件总线。
@@ -59,6 +63,9 @@ func New() *Bus {
 		events:   make([]*Event, 0, 1024),
 	}
 }
+
+// SetPG 注入 PG 审计持久化（v1.0.4）。
+func (b *Bus) SetPG(db *sql.DB) { b.db = db }
 
 // Subscribe 订阅事件类型。
 func (b *Bus) Subscribe(t EventType, h Handler) {
@@ -76,6 +83,18 @@ func (b *Bus) Publish(ctx context.Context, e *Event) error {
 	b.events = append(b.events, e)
 	handlers := append([]Handler(nil), b.handlers[e.Type]...)
 	b.mu.Unlock()
+	// v1.0.4：异步落 PG audit_events（best-effort）
+	if b.db != nil {
+		go func(ev *Event) {
+			detail, _ := json.Marshal(ev.Payload)
+			if _, err := b.db.Exec(
+				`INSERT INTO audit_events (user_id, agent_id, action, detail) VALUES ($1,$2,$3,$4)`,
+				ev.UserID, ev.AgentID, string(ev.Type), string(detail),
+			); err != nil {
+				log.Printf("eventbus: persist audit_event: %v", err)
+			}
+		}(e)
+	}
 	for _, h := range handlers {
 		if err := h(ctx, e); err != nil {
 			return err

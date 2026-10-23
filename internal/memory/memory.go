@@ -48,6 +48,9 @@ type Fact struct {
 	Source     string         `json:"source"`     // manual / approval / distilled
 	UpdatedAt  int64          `json:"updatedAt"`
 	Meta       map[string]any `json:"meta,omitempty"`
+	// Embedding 语义向量（v1.0.2 预留列）。pgvector 未启用时由 PG 以 JSONB 持久化，
+	// 应用可真实存取；装好 pgvector 后可平滑迁移为 vector(n) 并启用向量检索。
+	Embedding []float32 `json:"embedding,omitempty"`
 }
 
 // EpisodeQuery 情景记忆查询。

@@ -8,7 +8,9 @@ import 'package:flutter/material.dart';
 
 import 'screens/approval_screen.dart';
 import 'screens/conversation_screen.dart';
+import 'screens/devices_screen.dart';
 import 'screens/overview_screen.dart';
+import 'services/ble/ble_service.dart';
 
 void main() {
   runApp(const HumanAgentImApp());
@@ -40,13 +42,15 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0; // 默认进入审批态（§7.1：设计重心是审批与巡视，不是聊天）
+  final BleService _ble = BleService();
 
   @override
   Widget build(BuildContext context) {
-    final pages = const <Widget>[
-      ApprovalScreen(),
-      OverviewScreen(),
-      ConversationScreen(),
+    final pages = <Widget>[
+      const ApprovalScreen(),
+      const OverviewScreen(),
+      const ConversationScreen(),
+      DevicesScreen(ble: _ble),
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
@@ -68,6 +72,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.chat_bubble_outline),
             selectedIcon: Icon(Icons.chat_bubble),
             label: '会话',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.watch_outlined),
+            selectedIcon: Icon(Icons.watch),
+            label: '设备',
           ),
         ],
       ),

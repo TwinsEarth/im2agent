@@ -29,3 +29,6 @@ client/app/build/
 client/app/.metadata
 client/app/ios/Pods/
 client/app/ios/.symlinks/
+
+# local backups
+*.bak

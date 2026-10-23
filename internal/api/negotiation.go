@@ -4,6 +4,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"human-agent-im/internal/negotiation"
@@ -59,6 +60,36 @@ func (d *Deps) NegotiationMux(serviceName string) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusCreated, sessionJSON(s))
+		// v1.1.1：注册 WebSocket 消息处理器
+		d.Stream.RegisterHandler(req.ID, func(nid string, in map[string]any) (any, error) {
+			action, _ := in["action"].(string)
+			if action != "turn" {
+				return map[string]any{"type": "ack", "action": action}, nil
+			}
+			turnRaw, ok := in["turn"].(map[string]any)
+			if !ok {
+				return nil, errors.New("turn required")
+			}
+			fromAgent, _ := turnRaw["fromAgentId"].(string)
+			toAgent, _ := turnRaw["toAgentId"].(string)
+			intent, _ := turnRaw["intent"].(string)
+			payload, _ := turnRaw["payload"].(map[string]any)
+			t, err := d.Store.Negotiation.LoadSession(r.Context(), nid)
+			if err != nil {
+				return nil, err
+			}
+			state, err := t.Apply(negotiation.Turn{
+				SessionID: nid, FromAgentID: fromAgent, ToAgentID: toAgent,
+				Intent: negotiation.Intent(intent), Payload: payload,
+				DeadlineUnix: time.Now().Add(30 * time.Minute).Unix(),
+			})
+			if err != nil {
+				_ = d.Store.Negotiation.SaveSession(r.Context(), t)
+				return map[string]any{"type": "turn_error", "error": err.Error(), "state": string(state)}, nil
+			}
+			_ = d.Store.Negotiation.SaveSession(r.Context(), t)
+			return map[string]any{"type": "turn_applied", "session": sessionJSON(t)}, nil
+		})
 	})
 
 	mux.HandleFunc("POST /v1/negotiations/{id}/turns", func(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +119,10 @@ func (d *Deps) NegotiationMux(serviceName string) http.Handler {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, sessionJSON(s))
+		resp := sessionJSON(s)
+		writeJSON(w, http.StatusOK, resp)
+		// v1.1.1：WS 广播状态变更
+		d.Stream.Broadcast(id, map[string]any{"type": "state_changed", "session": resp})
 	})
 
 	mux.HandleFunc("POST /v1/negotiations/{id}/bind-approval", func(w http.ResponseWriter, r *http.Request) {
@@ -108,16 +142,50 @@ func (d *Deps) NegotiationMux(serviceName string) http.Handler {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, sessionJSON(s))
+		resp := sessionJSON(s)
+		writeJSON(w, http.StatusOK, resp)
+		// v1.1.1：WS 广播状态变更
+		d.Stream.Broadcast(id, map[string]any{"type": "state_changed", "session": resp})
 	})
 
+	mux.HandleFunc("POST /v1/intent/precheck", func(w http.ResponseWriter, r *http.Request) { d.intentPrecheck(w, r) })
+	mux.HandleFunc("POST /v1/negotiations/{id}/llm-auto", func(w http.ResponseWriter, r *http.Request) { d.llmAutoRun(w, r) })
+
+	// v1.3.0：LLM 自动协商
+	mux.HandleFunc("POST /v1/negotiations/{id}/llm-turn", func(w http.ResponseWriter, r *http.Request) {
+		d.llmTurn(w, r)
+	})
+
+	mux.HandleFunc("GET /v1/negotiations/list", func(w http.ResponseWriter, r *http.Request) {
+		limit := 50
+		if l := r.URL.Query().Get("limit"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
+				limit = n
+			}
+		}
+		list, err := d.Store.Negotiation.ListSessions(r.Context(), limit)
+		if err != nil {
+			negotiationErr(w, err)
+			return
+		}
+		out := make([]map[string]any, 0, len(list))
+		for _, s := range list {
+			out = append(out, sessionJSON(s))
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"negotiations": out, "count": len(out)})
+	})
+	mux.HandleFunc("GET /v1/negotiations/{id}/ws", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		d.Stream.HandleWS(id, w, r)
+	})
 	mux.HandleFunc("GET /v1/negotiations/{id}", func(w http.ResponseWriter, r *http.Request) {
 		s, err := d.Store.Negotiation.LoadSession(r.Context(), r.PathValue("id"))
 		if err != nil {
 			negotiationErr(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, sessionJSON(s))
+		resp := sessionJSON(s)
+		writeJSON(w, http.StatusOK, resp)
 	})
 
 	return mux

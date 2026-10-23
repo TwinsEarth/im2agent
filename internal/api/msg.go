@@ -24,9 +24,11 @@ type SeqBatchRequest struct {
 
 // SendMessageRequest 发送消息（v0.5.2 新增）。
 type SendMessageRequest struct {
-	SenderID   uint64 `json:"senderId"`
-	ReceiverID uint64 `json:"receiverId"`
-	Content    string `json:"content"`
+	SenderID     uint64         `json:"senderId"`
+	ReceiverID   uint64         `json:"receiverId"`
+	Content      string         `json:"content"`
+	BizType      string         `json:"bizType"`      // 空=text；approval_card/agent_summary/paid...
+	AgentContext map[string]any `json:"agentContext"` // Agent 业务上下文
 }
 
 // NewMsgMux 挂载 msg-svc 路由（内含进程内分片生成器）。
@@ -106,12 +108,14 @@ func NewMsgMuxWithStore(serviceName string, msgStore store.MessageStore) http.Ha
 			return
 		}
 		msg := &store.Message{
-			MessageID:  id.UUIDv4(),
-			SenderID:   req.SenderID,
-			ReceiverID: req.ReceiverID,
-			Content:    req.Content,
-			Seq:        int64(seq),
-			CreatedAt:  time.Now().Unix(),
+			MessageID:    id.UUIDv4(),
+			SenderID:     req.SenderID,
+			ReceiverID:   req.ReceiverID,
+			BizType:      req.BizType,
+			Content:      req.Content,
+			AgentContext: req.AgentContext,
+			Seq:          int64(seq),
+			CreatedAt:    time.Now().Unix(),
 		}
 		if err := msgStore.SaveMessage(r.Context(), msg); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())

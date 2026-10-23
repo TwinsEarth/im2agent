@@ -18,14 +18,15 @@ func RequireToken(next http.Handler, token string) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
-			http.Error(w, `{"error":"missing bearer token"}`, http.StatusUnauthorized)
-			return
+		got := ""
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			got = strings.TrimPrefix(auth, "Bearer ")
+		} else if q := r.URL.Query().Get("access_token"); q != "" {
+			// WebSocket / EventSource 无法设置 Authorization 头，允许 query 传 token。
+			got = q
 		}
-		got := strings.TrimPrefix(auth, "Bearer ")
 		if got != token {
-			http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)

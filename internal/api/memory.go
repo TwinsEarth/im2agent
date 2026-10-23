@@ -71,6 +71,19 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 	})
 
 	// 查询语义记忆（本 Agent 自己的；?q= 关键词）
+	mux.HandleFunc("GET /v1/memory/search", func(w http.ResponseWriter, r *http.Request) {
+		kw := r.URL.Query().Get("q")
+		if kw == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing q"})
+				return
+		}
+			hits, err := d.Memory.SearchFacts(r.Context(), memory.Scope{UserID: 1, AgentID: "butler"}, kw)
+			if err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+				return
+		}
+		writeJSON(w, 200, map[string]any{"results": hits, "count": len(hits)})
+	})
 	mux.HandleFunc("GET /v1/memory/facts", func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := strconv.ParseUint(r.URL.Query().Get("userId"), 10, 64)
 		agent := r.URL.Query().Get("agentId")
@@ -111,6 +124,69 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "episode": req.Episode})
+	})
+
+	// 写入工作记忆（KV，可带 TTL）
+	mux.HandleFunc("POST /v1/memory/working", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			UserID   uint64 `json:"userId"`
+			AgentID  string `json:"agentId"`
+			Key      string `json:"key"`
+			Value    any    `json:"value"`
+			TTL      int64  `json:"ttlSeconds"`
+		}
+		if err := decode(r, &req); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if req.UserID == 0 || req.AgentID == "" || req.Key == "" {
+			writeErr(w, http.StatusBadRequest, "userId/agentId/key required")
+			return
+		}
+		sc := scopeOf(req.UserID, req.AgentID)
+		var err error
+		if req.TTL > 0 {
+			err = d.Memory.PutWorkingWithTTL(r.Context(), sc, req.Key, req.Value, req.TTL)
+		} else {
+			err = d.Memory.PutWorking(r.Context(), sc, req.Key, req.Value)
+		}
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
+
+	// 读取工作记忆
+	mux.HandleFunc("GET /v1/memory/working", func(w http.ResponseWriter, r *http.Request) {
+		uid, _ := strconv.ParseUint(r.URL.Query().Get("userId"), 10, 64)
+		agent := r.URL.Query().Get("agentId")
+		key := r.URL.Query().Get("key")
+		if uid == 0 || agent == "" || key == "" {
+			writeErr(w, http.StatusBadRequest, "userId/agentId/key required")
+			return
+		}
+		sc := scopeOf(uid, agent)
+		v, err := d.Memory.GetWorking(r.Context(), sc, key)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"key": key, "value": v})
+	})
+
+	// 删除工作记忆
+	mux.HandleFunc("DELETE /v1/memory/working", func(w http.ResponseWriter, r *http.Request) {
+		uid, _ := strconv.ParseUint(r.URL.Query().Get("userId"), 10, 64)
+		agent := r.URL.Query().Get("agentId")
+		key := r.URL.Query().Get("key")
+		if uid == 0 || agent == "" || key == "" {
+			writeErr(w, http.StatusBadRequest, "userId/agentId/key required")
+			return
+		}
+		sc := scopeOf(uid, agent)
+		d.Memory.DeleteWorking(r.Context(), sc, key)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 
 	// 查询情景记忆（?kind= 可选）

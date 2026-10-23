@@ -34,7 +34,17 @@ func driverRegistered(driver string) bool {
 	return false
 }
 
-// Open 打开数据库连接并做一次 Ping。driver 如 "pgx" / "postgres"。
+// 连接池默认治理参数（v1.0.0 修复）。
+// database/sql 默认 MaxOpenConns=0（无限制），高并发会打爆 PostgreSQL max_connections，
+// 因此必须显式收敛；数值可在部署环境通过 PG_MAX_OPEN_CONNS 等环境变量覆盖（见 TunePoolFromEnv）。
+const (
+	defaultMaxOpenConns     = 25
+	defaultMaxIdleConns     = 5
+	defaultConnMaxLifetime  = 30 * time.Minute
+	defaultConnMaxIdleTime  = 5 * time.Minute
+)
+
+// Open 打开数据库连接、配置连接池并做一次 Ping。driver 如 "pgx" / "postgres"。
 func Open(driver, dsn string) (*sql.DB, error) {
 	if !driverRegistered(driver) {
 		return nil, fmt.Errorf("store: database driver %q is not registered; blank-import a postgres driver (pgx stdlib or lib/pq)", driver)
@@ -43,6 +53,7 @@ func Open(driver, dsn string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: open: %w", err)
 	}
+	TunePool(db, defaultMaxOpenConns, defaultMaxIdleConns, defaultConnMaxLifetime, defaultConnMaxIdleTime)
 	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(pingCtx); err != nil {
@@ -50,6 +61,22 @@ func Open(driver, dsn string) (*sql.DB, error) {
 		return nil, fmt.Errorf("store: ping: %w", err)
 	}
 	return db, nil
+}
+
+// TunePool 显式收敛 database/sql 连接池，避免无限连接压垮数据库。
+func TunePool(db *sql.DB, maxOpen, maxIdle int, maxLifetime, maxIdleTime time.Duration) {
+	if maxOpen > 0 {
+		db.SetMaxOpenConns(maxOpen)
+	}
+	if maxIdle >= 0 {
+		db.SetMaxIdleConns(maxIdle)
+	}
+	if maxLifetime > 0 {
+		db.SetConnMaxLifetime(maxLifetime)
+	}
+	if maxIdleTime > 0 {
+		db.SetConnMaxIdleTime(maxIdleTime)
+	}
 }
 
 // NewPostgresStore 用已有 *sql.DB 构建聚合 Store。
@@ -64,6 +91,7 @@ func NewPostgresStore(db *sql.DB, dailyLedgerLimit int) *Store {
 		Approval:    &pgApproval{db: db},
 		Negotiation: &pgNegotiation{db: db},
 		Audit:       &pgAudit{db: db},
+		Message:     NewPGMessage(db),
 	}
 }
 
@@ -619,6 +647,31 @@ FROM negotiation_turns WHERE session_id=$1 ORDER BY seq`, id)
 		return nil, err
 	}
 	return s, nil
+}
+
+func (n *pgNegotiation) ListSessions(ctx context.Context, limit int) ([]*negotiation.Session, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := n.db.QueryContext(ctx,
+		`SELECT id FROM negotiation_sessions ORDER BY COALESCE(updated_at, created_at) DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]*negotiation.Session, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		s, err := n.LoadSession(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 func firstAgent(s *negotiation.Session) string {

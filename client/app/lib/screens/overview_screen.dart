@@ -1,117 +1,134 @@
-/// 巡视态：各子 Agent 工作状态可视化（§7.1）。
-/// 可钻入任一子 Agent 查看完整执行轨迹（Phase 1：决策轨迹回放）。
-library;
+// v1.3.2: 巡视态——Agent 工作轨迹/审计事件流（/v1/agent/logs）+ 协商时间线（/v1/negotiations/list），全部真实。
+import "package:flutter/material.dart";
+import "../services/api_client.dart";
 
-import 'package:flutter/material.dart';
+class AgentLog {
+  final String agent;
+  final String action;
+  final String detail;
+  final String time;
+  AgentLog({required this.agent, required this.action, required this.detail, required this.time});
+}
 
-import '../models/agent_status.dart';
+class NegItem {
+  final String id;
+  final String state;
+  final int round;
+  NegItem({required this.id, required this.state, required this.round});
+}
 
-class OverviewScreen extends StatelessWidget {
+class OverviewScreen extends StatefulWidget {
   const OverviewScreen({super.key});
+  @override
+  State<OverviewScreen> createState() => _OverviewScreenState();
+}
 
-  // v0.1 演示数据；Phase 1 由 ApiClient.fetchAgentTeamStatus() 提供。
-  static const List<AgentStatus> _agents = [
-    AgentStatus(
-      agentId: 'master-agent',
-      name: '管家',
-      description: '任务路由 / 优先级仲裁 / 呈报',
-      state: AgentWorkState.working,
-      activity: '正在协调 3 个子 Agent 的今日事务',
-      pendingApprovals: 0,
-      todayActions: 12,
-    ),
-    AgentStatus(
-      agentId: 'procurement-agent',
-      name: '采购',
-      description: '比价 / 下单',
-      state: AgentWorkState.needsApproval,
-      activity: '办公椅比价完成，等待审批',
-      pendingApprovals: 1,
-      todayActions: 3,
-    ),
-    AgentStatus(
-      agentId: 'schedule-agent',
-      name: '日程',
-      description: '预约 / 日程协调',
-      state: AgentWorkState.needsApproval,
-      activity: '周四 15:00 沟通待确认',
-      pendingApprovals: 1,
-      todayActions: 5,
-    ),
-    AgentStatus(
-      agentId: 'family-agent',
-      name: '家庭事务',
-      description: '物业 / 水电 / 家政 / 维修',
-      state: AgentWorkState.working,
-      activity: '对比 2 家维修报价中',
-      pendingApprovals: 1,
-      todayActions: 4,
-    ),
-    AgentStatus(
-      agentId: 'stranger-filter-agent',
-      name: '陌生人过滤',
-      description: '来意预审 / 付费门控',
-      state: AgentWorkState.idle,
-      activity: '今日拦截 7 条询盘，放行 2 条',
-      pendingApprovals: 1,
-      todayActions: 9,
-    ),
-  ];
+class _OverviewScreenState extends State<OverviewScreen>
+    with SingleTickerProviderStateMixin {
+  static const String userId = "1";
+  final ApiClient api = ApiClient(baseUrl: "http://106.53.197.47", token: "im2a_demo_token");
+  late final TabController _tab = TabController(length: 2, vsync: this);
+  List<AgentLog> _logs = [];
+  List<NegItem> _negs = [];
+  String _error = "";
+  bool _loading = true;
 
-  Color _colorOf(AgentWorkState s) {
-    switch (s) {
-      case AgentWorkState.working:
-        return Colors.blue;
-      case AgentWorkState.needsApproval:
-        return Colors.orange;
-      case AgentWorkState.blocked:
-        return Colors.red;
-      case AgentWorkState.idle:
-        return Colors.green;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  String _fmtTime(dynamic iso) {
+    final s = "$iso";
+    final t = s.indexOf("T");
+    if (t >= 0 && s.length >= t + 6) return s.substring(t + 1, t + 6);
+    return s;
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final results = await Future.wait([
+        api.agentLogs(userId),
+        api.negotiations(limit: 50),
+      ]);
+      final logRows = results[0] as List<Map<String, dynamic>>;
+      final negRows = results[1] as List<Map<String, dynamic>>;
+      if (!mounted) return;
+      setState(() {
+        _logs = logRows.map((e) => AgentLog(
+          agent: "${e["agent"] ?? "-"}",
+          action: "${e["action"] ?? ""}",
+          detail: "${e["detail"] ?? ""}",
+          time: _fmtTime(e["time"]),
+        )).toList();
+        _negs = negRows.map((n) => NegItem(
+          id: "${n["id"] ?? ""}",
+          state: "${n["state"] ?? ""}",
+          round: (n["round"] is int) ? n["round"] as int : 0,
+        )).toList();
+        _error = "";
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = "$e"; _loading = false; });
     }
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Agent 团队')),
-      body: ListView.builder(
-        itemCount: _agents.length,
-        itemBuilder: (context, i) {
-          final a = _agents[i];
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: _colorOf(a.state).withValues(alpha: 0.15),
-                child: Icon(Icons.smart_toy_outlined,
-                    color: _colorOf(a.state)),
-              ),
-              title: Text('${a.name}  ·  ${a.state.label}'),
-              subtitle: Text('${a.description}\n${a.activity}'),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (a.pendingApprovals > 0)
-                    Text('待审 ${a.pendingApprovals}',
-                        style: TextStyle(
-                            color: Colors.orange.shade800,
-                            fontWeight: FontWeight.bold)),
-                  Text('今日 ${a.todayActions} 项',
-                      style: Theme.of(context).textTheme.labelSmall),
-                ],
-              ),
-              onTap: () {
-                // Phase 1：钻入子 Agent 查看完整执行轨迹（§8.3 决策轨迹回放）
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('${a.agentId} 执行轨迹（Phase 1 开放）')),
-                );
-              },
-            ),
-          );
-        },
+      appBar: AppBar(
+        title: const Text("Agent 团队"), centerTitle: true,
+        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))],
+        bottom: TabBar(controller: _tab, tabs: const [
+          Tab(text: "工作轨迹 / 审计"),
+          Tab(text: "协商时间线"),
+        ]),
       ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error.isNotEmpty
+              ? Center(child: Text("加载失败：$_error", style: const TextStyle(color: Colors.red)))
+              : TabBarView(controller: _tab, children: [
+                  _logs.isEmpty
+                      ? const Center(child: Text("暂无工作日志"))
+                      : RefreshIndicator(onRefresh: _load, child: ListView.separated(
+                          itemCount: _logs.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (_, i) {
+                            final l = _logs[i];
+                            return ListTile(
+                              leading: CircleAvatar(child: Text(l.agent.substring(0, 1).toUpperCase())),
+                              title: Text("${l.agent} · ${l.action}"),
+                              subtitle: Text(l.detail),
+                              trailing: Text(l.time, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                            );
+                          })),
+                  _negs.isEmpty
+                      ? const Center(child: Text("暂无协商记录"))
+                      : RefreshIndicator(onRefresh: _load, child: ListView.separated(
+                          itemCount: _negs.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (_, i) {
+                            final n = _negs[i];
+                            return ListTile(
+                              leading: const CircleAvatar(child: Icon(Icons.handshake, size: 18)),
+                              title: Text("协商 ${n.id}"),
+                              subtitle: Text("状态：${n.state}"),
+                              trailing: Text("${n.round} 轮",
+                                  style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                            );
+                          })),
+                ]),
     );
   }
 }

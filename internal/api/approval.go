@@ -4,6 +4,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"human-agent-im/internal/approval"
@@ -57,6 +58,10 @@ func (d *Deps) ApprovalMux(serviceName string) http.Handler {
 		_ = d.Store.Audit.Write(audit.Entry{UserID: req.UserID, AgentID: req.SourceAgentID,
 			Action: audit.ActionEscalate, Decision: "CREATED", Detail: map[string]any{"ticketId": t.ID}})
 		writeJSON(w, http.StatusCreated, ticketJSON(t))
+		// v1.1.2：WS 推送审批卡片
+		d.Stream.Broadcast("approval:"+strconv.FormatUint(t.UserID, 10), map[string]any{
+			"type": "approval_card", "ticket": ticketJSON(t),
+		})
 	})
 
 	mux.HandleFunc("POST /v1/approvals/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +74,28 @@ func (d *Deps) ApprovalMux(serviceName string) http.Handler {
 		}
 		_ = d.Store.Audit.Write(audit.Entry{UserID: t.UserID, AgentID: t.SourceAgentID,
 			MessageID: t.ID, Action: audit.ActionApprove, Decision: "APPROVED"})
-		writeJSON(w, http.StatusOK, ticketJSON(t))
+		// v1.6 审查修复：手机端审批同步落权威表 ticket_state + SSE，与手表/离线多端一致
+		if d.DB != nil {
+			d.applyTicketDecision(strconv.FormatUint(t.UserID, 10), t.ID, "approved", "phone", 0)
+		}
+		resp := ticketJSON(t)
+		writeJSON(w, http.StatusOK, resp)
+		d.Stream.Broadcast("approval:"+strconv.FormatUint(t.UserID, 10), map[string]any{
+			"type": "approval_decision", "ticket": resp,
+		})
+		// v1.2.0：审批通过 → 恢复绑定的协商会话
+		if t.Payload != nil {
+			if nid, ok := t.Payload["negotiationId"].(string); ok && nid != "" {
+				if sess, err := d.Store.Negotiation.LoadSession(r.Context(), nid); err == nil {
+					// 协商从 AUTH_REQUIRED 恢复到 WORKING
+					sess.State = "WORKING"
+					_ = d.Store.Negotiation.SaveSession(r.Context(), sess)
+					d.Stream.Broadcast(nid, map[string]any{
+						"type": "negotiation_resumed", "reason": "approved", "session": sessionJSON(sess),
+					})
+				}
+			}
+		}
 	})
 
 	mux.HandleFunc("POST /v1/approvals/{id}/reject", func(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +108,10 @@ func (d *Deps) ApprovalMux(serviceName string) http.Handler {
 		}
 		_ = d.Store.Audit.Write(audit.Entry{UserID: t.UserID, AgentID: t.SourceAgentID,
 			MessageID: t.ID, Action: audit.ActionReject, Decision: "REJECTED"})
+		// v1.6 审查修复：手机端驳回同步落权威表 ticket_state
+		if d.DB != nil {
+			d.applyTicketDecision(strconv.FormatUint(t.UserID, 10), t.ID, "rejected", "phone", 0)
+		}
 		writeJSON(w, http.StatusOK, ticketJSON(t))
 	})
 
@@ -93,7 +123,23 @@ func (d *Deps) ApprovalMux(serviceName string) http.Handler {
 			approvalErr(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, ticketJSON(t))
+		resp := ticketJSON(t)
+		writeJSON(w, http.StatusOK, resp)
+		d.Stream.Broadcast("approval:"+strconv.FormatUint(t.UserID, 10), map[string]any{
+			"type": "approval_decision", "ticket": resp,
+		})
+		// v1.2.2：修改 → 协商恢复 + patch 同步
+		if t.Payload != nil {
+			if nid, ok := t.Payload["negotiationId"].(string); ok && nid != "" {
+				if sess, e := d.Store.Negotiation.LoadSession(r.Context(), nid); e == nil {
+					sess.State = "WORKING"
+					_ = d.Store.Negotiation.SaveSession(r.Context(), sess)
+					d.Stream.Broadcast(nid, map[string]any{
+						"type": "negotiation_resumed", "reason": "modified", "patch": req.Patch,
+					})
+				}
+			}
+		}
 	})
 
 	mux.HandleFunc("POST /v1/approvals/{id}/complete", func(w http.ResponseWriter, r *http.Request) {
@@ -124,6 +170,21 @@ func (d *Deps) ApprovalMux(serviceName string) http.Handler {
 			out = append(out, ticketJSON(t))
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tickets": out})
+	})
+
+	mux.HandleFunc("GET /v1/approvals/history", func(w http.ResponseWriter, r *http.Request) {
+		user := r.URL.Query().Get("userId")
+		if user == "" {
+			writeErr(w, 400, "userId required")
+				return
+		}
+		// v1.2.4：返回所有审批单（不限 PENDING）
+		list, _ := d.Engine.ListPending(0)
+		out := make([]map[string]any, 0)
+		for _, t := range list {
+			out = append(out, ticketJSON(t))
+		}
+		writeJSON(w, 200, map[string]any{"tickets": out, "total": len(out)})
 	})
 
 	mux.HandleFunc("GET /v1/approvals/{id}", func(w http.ResponseWriter, r *http.Request) {
