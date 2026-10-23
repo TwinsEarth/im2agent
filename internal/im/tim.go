@@ -231,20 +231,29 @@ func VerifyWebhook(secret string, timestamp int64, body []byte, sig string) erro
 
 // WebhookEvent 腾讯云 IM 第三方回调事件。
 type WebhookEvent struct {
-	CallbackType string         `json:"CallbackType"`
-	SdkAppID     int64          `json:"SdkAppID"`
-	FromUserID   string         `json:"From_Account"`
-	ToUserID     string         `json:"To_Account"`
-	GroupID      string         `json:"GroupId"`
-	MsgKey       string         `json:"MsgKey"`
-	MsgBody      map[string]any `json:"MsgBody"`
-	MsgTime      int64          `json:"MsgTime"`
+	CallbackType string `json:"CallbackType"`
+	// 腾讯云真实回调字段为 CallbackCommand / MsgId，做归一兼容。
+	CallbackCommand string `json:"CallbackCommand"`
+	SdkAppID        int64  `json:"SdkAppID"`
+	FromUserID      string `json:"From_Account"`
+	ToUserID        string `json:"To_Account"`
+	GroupID         string `json:"GroupId"`
+	MsgKey          string `json:"MsgKey"`
+	MsgID           string `json:"MsgId"`
+	MsgBody         []any          `json:"MsgBody"` // 腾讯云 MsgBody 是 element 数组，不是对象
+	MsgTime         int64  `json:"MsgTime"`
 }
 
-// Valid 校验事件完整性。
-func (e WebhookEvent) Valid() error {
+// Valid 校验事件完整性，并把腾讯云真实字段名归一到内部字段。指针接收者以便回写归一结果。
+func (e *WebhookEvent) Valid() error {
 	if e.CallbackType == "" {
-		return errors.New("missing CallbackType")
+		e.CallbackType = e.CallbackCommand
+	}
+	if e.MsgKey == "" {
+		e.MsgKey = e.MsgID
+	}
+	if e.CallbackType == "" {
+		return errors.New("missing CallbackType/CallbackCommand")
 	}
 	if e.FromUserID == "" && e.GroupID == "" {
 		return errors.New("missing From_Account/GroupId")

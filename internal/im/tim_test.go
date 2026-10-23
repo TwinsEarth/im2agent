@@ -237,3 +237,31 @@ func TestNewGroup_Dedup(t *testing.T) {
 		t.Fatalf("members should dedup to 3, got %d: %v", len(g.Members), g.Members)
 	}
 }
+
+
+// TestWebhookEventTencentRealFields 固化腾讯云真实回调字段名归一（防回归）：
+// CallbackCommand->CallbackType、MsgId->MsgKey、MsgBody 数组、指针接收者回写。
+func TestWebhookEventTencentRealFields(t *testing.T) {
+	raw := `{"CallbackCommand":"Group.CallbackAfterSendMsg","SdkAppID":1600168829,` +
+		`"GroupId":"im2a_group_1","From_Account":"admin","MsgId":"wk-123","MsgTime":1792762000,` +
+		`"MsgBody":[{"MsgType":"TIMTextElem","MsgContent":{"Text":"hi"}}]}`
+	var ev WebhookEvent
+	if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+		t.Fatalf("unmarshal real Tencent callback: %v", err)
+	}
+	if err := ev.Valid(); err != nil { // 指针接收者回写
+		t.Fatalf("valid: %v", err)
+	}
+	if ev.CallbackType != "Group.CallbackAfterSendMsg" {
+		t.Fatalf("CallbackCommand not normalized: %q", ev.CallbackType)
+	}
+	if ev.MsgKey != "wk-123" {
+		t.Fatalf("MsgId not normalized to MsgKey: %q", ev.MsgKey)
+	}
+	if len(ev.MsgBody) != 1 {
+		t.Fatalf("MsgBody must decode as array, got %v", ev.MsgBody)
+	}
+	if ev.SdkAppID != 1600168829 {
+		t.Fatalf("SdkAppID: %d", ev.SdkAppID)
+	}
+}
