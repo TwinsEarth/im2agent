@@ -6,7 +6,7 @@
 ![npm](https://img.shields.io/npm/v/@twinsearth%2Fim2agent?logo=npm&label=npm)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-SDK-02569B?logo=flutter&logoColor=white)
-![Version](https://img.shields.io/badge/version-v1.8.7-blue)
+![Version](https://img.shields.io/badge/version-v1.8.8-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 > **Slogan**：让每个人都拥有自己专属的 AI 秘书、助理与管家团队。

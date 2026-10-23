@@ -72,68 +72,112 @@ func (cl *Client) SendOfflinePush(ctx context.Context, cred Credential, m Offlin
 	return cl.HTTP.Do(req)
 }
 
-// DispatchPending 取出 pending 任务，按凭据真实下发；成功置 sent，失败累加 attempts。
+// DispatchPending 取出全部 pending 任务并真实下发（后台调度 ticker 用）。
+// 多实例并发安全：事务内 SELECT ... FOR UPDATE SKIP LOCKED 抢占任务，
+// 同一时刻每条任务只被一个调度者处理，避免网关多实例重复推送。
 func DispatchPending(ctx context.Context, db *sql.DB, cl *Client) (sent, attempted int, err error) {
-	rows, err := db.QueryContext(ctx,
-		`SELECT id, user_id, msg_key, title, body FROM im_push_tasks WHERE status='pending' ORDER BY id LIMIT 50`)
+	return dispatch(ctx, db, cl, "")
+}
+
+// DispatchUserPending 仅调度指定用户的 pending 任务（运营"手动重试该用户"使用），
+// 绝不越权推送其他用户的任务。
+func DispatchUserPending(ctx context.Context, db *sql.DB, cl *Client, userID string) (sent, attempted int, err error) {
+	if userID == "" {
+		return 0, 0, fmt.Errorf("push: empty user id")
+	}
+	return dispatch(ctx, db, cl, userID)
+}
+
+// dispatch 是全量/按用户调度的共同实现。userID 为空表示全量。
+// 整批在单个事务中处理：行锁随事务持有到 commit，配合 SKIP LOCKED 实现跨实例去重；
+// 失败任务只累加 attempts/last_error、不改 status（保持 pending 供下轮重试）。
+func dispatch(ctx context.Context, db *sql.DB, cl *Client, userID string) (sent, attempted int, err error) {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
 	}
-	defer rows.Close()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	query := `SELECT id, user_id, msg_key, title, body FROM im_push_tasks WHERE status='pending'`
+	args := []any{}
+	if userID != "" {
+		query += ` AND user_id=$1`
+		args = append(args, userID)
+	}
+	query += ` ORDER BY id LIMIT 50 FOR UPDATE SKIP LOCKED`
+
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return 0, 0, err
+	}
 	type task struct {
 		id                          int64
 		userID, msgKey, title, body string
 	}
 	var tasks []task
 	for rows.Next() {
-		var t task
-		if e := rows.Scan(&t.id, &t.userID, &t.msgKey, &t.title, &t.body); e != nil {
-			break
+		var tk task
+		if e := rows.Scan(&tk.id, &tk.userID, &tk.msgKey, &tk.title, &tk.body); e != nil {
+			rows.Close()
+			return sent, attempted, e
 		}
-		tasks = append(tasks, t)
+		tasks = append(tasks, tk)
 	}
-	for _, t := range tasks {
+	rows.Close()
+
+	for _, tk := range tasks {
 		attempted++
 		var cred Credential
-		cre := db.QueryRowContext(ctx,
+		cre := tx.QueryRowContext(ctx,
 			`SELECT user_id, platform, COALESCE(cert_ref,''), COALESCE(device_token,'')
-			 FROM im_push_credentials WHERE user_id=$1 ORDER BY platform LIMIT 1`, t.userID)
+			 FROM im_push_credentials WHERE user_id=$1 ORDER BY platform LIMIT 1`, tk.userID)
 		if e := cre.Scan(&cred.UserID, &cred.Platform, &cred.CertRef, &cred.DeviceToken); e != nil {
-			if _, err := db.ExecContext(ctx,
+			if _, e2 := tx.ExecContext(ctx,
 				`UPDATE im_push_tasks SET attempts=attempts+1, last_error=$2, updated_at=now() WHERE id=$1`,
-				t.id, "no_credential"); err != nil {
-				log.Printf("push task %d mark no_credential: %v", t.id, err)
+				tk.id, "no_credential"); e2 != nil {
+				log.Printf("push task %d mark no_credential: %v", tk.id, e2)
 			}
 			continue
 		}
 		if cred.CertRef == "" {
-			if _, err := db.ExecContext(ctx,
+			if _, e2 := tx.ExecContext(ctx,
 				`UPDATE im_push_tasks SET attempts=attempts+1, last_error=$2, updated_at=now() WHERE id=$1`,
-				t.id, "cert_not_configured"); err != nil {
-				log.Printf("push task %d mark cert_not_configured: %v", t.id, err)
+				tk.id, "cert_not_configured"); e2 != nil {
+				log.Printf("push task %d mark cert_not_configured: %v", tk.id, e2)
 			}
 			continue
 		}
-		resp, e := cl.SendOfflinePush(ctx, cred, OfflinePushMsg{t.userID, t.msgKey, t.title, t.body})
+		resp, e := cl.SendOfflinePush(ctx, cred, OfflinePushMsg{tk.userID, tk.msgKey, tk.title, tk.body})
 		if e != nil || resp == nil || resp.StatusCode >= 300 {
 			msg := "http_error"
 			if resp != nil {
 				msg = fmt.Sprintf("http_%d", resp.StatusCode)
+				resp.Body.Close()
 			}
-			if _, err := db.ExecContext(ctx,
+			if _, e2 := tx.ExecContext(ctx,
 				`UPDATE im_push_tasks SET attempts=attempts+1, last_error=$2, updated_at=now() WHERE id=$1`,
-				t.id, msg); err != nil {
-				log.Printf("push task %d mark %s: %v", t.id, msg, err)
+				tk.id, msg); e2 != nil {
+				log.Printf("push task %d mark %s: %v", tk.id, msg, e2)
 			}
-			log.Printf("push task %d failed: %s", t.id, msg)
+			log.Printf("push task %d failed: %s", tk.id, msg)
 			continue
 		}
 		resp.Body.Close()
-		if _, err := db.ExecContext(ctx,
-			`UPDATE im_push_tasks SET status='sent', last_error='', updated_at=now() WHERE id=$1`, t.id); err != nil {
-			log.Printf("push task %d mark sent: %v", t.id, err)
+		if _, e2 := tx.ExecContext(ctx,
+			`UPDATE im_push_tasks SET status='sent', last_error='', updated_at=now() WHERE id=$1`, tk.id); e2 != nil {
+			log.Printf("push task %d mark sent: %v", tk.id, e2)
 		}
 		sent++
 	}
+
+	if err := tx.Commit(); err != nil {
+		return sent, attempted, err
+	}
+	committed = true
 	return sent, attempted, nil
 }

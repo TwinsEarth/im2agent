@@ -37,9 +37,31 @@ func v173DB(t *testing.T) *sql.DB {
 	return db
 }
 
+// pushTestLockKey 是推送调度测试专用的会话级 advisory lock 常量（'PUSH' 四字节）。
+// go test 跨包并行时，push 包与 api 包的调度测试是不同测试进程、扫同一张物理表，
+// 两处用同一常量加锁可串行化，杜绝各自的假腾讯云服务器互相抢占对方的 pending 任务。
+const pushTestLockKey int64 = 0x50555348
+
+func acquirePushTestLock(t *testing.T, db *sql.DB) {
+	t.Helper()
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("push lock conn: %v", err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", pushTestLockKey); err != nil {
+		_ = conn.Close()
+		t.Fatalf("acquire push advisory lock: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", pushTestLockKey)
+		_ = conn.Close()
+	})
+}
+
 // v1.7.3：推送任务真实落 PG；有凭据时真实 HTTP 出站被腾讯云端点捕获；无凭据/失败不丢消息。
 func TestV173_OfflinePushQueueAndDispatch(t *testing.T) {
 	db := v173DB(t)
+	acquirePushTestLock(t, db)
 	ctx := context.Background()
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
 	// 测试隔离：清空本测试专属的推送表，避免历史残留任务污染计数断言

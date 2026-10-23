@@ -33,3 +33,15 @@ client/app/ios/.symlinks/
 # local backups
 *.bak
 npm/*.tgz
+
+# 密钥/凭据（禁止入库；一律经环境变量或密钥管理注入）
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+.env
+.env.*
+secrets/
+credentials/
+*.token

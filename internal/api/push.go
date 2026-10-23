@@ -113,8 +113,8 @@ func (d *Deps) retryPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := context.Background()
-	// 只重试该用户 pending：DispatchPending 扫全部 pending，这里用临时标记等价——直接全量调度。
-	sent, attempted, err := push.DispatchPending(ctx, d.DB, d.PushClient)
+	// 仅重试该用户 pending，绝不越权推送其他用户（按 user_id 过滤 + 行级抢占锁）。
+	sent, attempted, err := push.DispatchUserPending(ctx, d.DB, d.PushClient, uid)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
