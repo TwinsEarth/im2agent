@@ -353,3 +353,36 @@
 - 服务端 `/v1/edge/pipeline` 是端侧管道的**开发联调替身**，用同一套 internal/edge 逻辑；真机上端侧管道应在 Flutter/端侧运行同一逻辑（Dart 移植或 FFI），本端点负责联调与审计落库。
 - BLE 目前是 Go 协议层（帧/CRC/编解码真实可测）；真实 flutter_blue_plus 扫描/连接/notify/write 因本机与服务器均无 Flutter SDK，**未实机跑**，但帧格式已固定，端侧直接复用。
 - EgressGuard 的 host 白名单为可配置；当前演示 host 含 106.53.197.47/localhost，正式域名落地时改配置即可。
+
+
+---
+
+## v1.5 重做（付费账本生产化收尾，逐行审查 + 真实落库/端到端，2026-10-23）
+
+对应清单：v1.5.0 发送即扣费 PG 落账／v1.5.1 回复才扣费／v1.5.2 日限+幂等／v1.5.3 退款+黑名单。
+
+### 一、逐行审查发现的真问题
+1. **账本其实已落库，但两套表割裂**：主流程 `paidflow/send` 走 `d.Store.Ledger`（pgLedger）写规范表 `paid_message_ledger` + 事件表 `paid_message_events`；而 `/v1/ledger/*`（payment_ledger.go）另写老表 `payment_ledger`（12 行历史数据）。两表 schema/类型/状态机都不同。
+2. **黑名单"只写不读"（安全缺口）**：`blacklistAdd` 能写 PG `blacklist` 表，但全代码**没有任何一处 SELECT 它**；发送入口用的是 `newBlocklistStore()` 内存黑名单（重启即失）。结果——被拉黑的人照样能发付费消息，拉黑形同虚设。
+3. **规范表 `paid_message_ledger` 长期 0 行**：pgLedger 实现扎实却从未被真实端到端跑过。
+
+### 二、真实修复
+- **v1.5.3 PG 黑名单强制拦截**：在 `paidflow/send` 的 reserve 之前真实查 `SELECT 1 FROM blacklist WHERE user_id=$1`（sender 维度），命中直接返回 `blocked / sender is on blacklist`，且**不写任何账本行**。让 blacklistAdd 写的表真正生效，与内存黑名单形成双保险。
+- 其余能力（已实现，本轮用测试坐实）：pgLedger 在**单事务**内做日限计数 + `INSERT ... ON CONFLICT(message_id) DO NOTHING` 幂等占位 + 状态机 0(reserved)→1(charged)→2(refunded) + 每步写 `paid_message_events` 事件溯源；billing_mode=1 发送即扣、billing_mode=2 open 才扣。
+
+### 三、真实测试（连真库，非 mock，4 个全 PASS）
+`internal/store/pgledger_real_test.go`：
+- 发送即扣费落库：reserve+charge 后直查 `paid_message_ledger` status=1、charged_at 非空、approval_card_id 落库；`paid_message_events` 含 reserved+charged 两条。
+- 幂等：同 message_id 重复 reserve 与重复 charge 都返回 `ErrAlreadyProcessed`，账本仍 1 行、不二次扣费。
+- 日限：dailyLimit=1 时同 sender 当天第二笔 reserve 返回 `ErrDailyLimitExceeded`。
+- 退款：charge 后 refund，status=2、refunded_at 非空、refund_reason 保留原因。
+
+### 四、生产端到端（106.53.197.47 实跑）
+- `POST /v1/paidflow/send {senderId:8888,receiverId:6666,billingMode:1,amountCents:200}` → 返回 messageId、`status=charged`；查库落 `paid_message_ledger` 一行 status=1、charged=true。
+- `POST /v1/ledger/blacklist {userId:8888}` → 落 blacklist 表。
+- 再次 `paidflow/send` 同一 sender → 返回 `blocked / sender is on blacklist`；**查库 8888 仍只有 1 行**（被拦截那笔未落账）。
+- 测试数据已清理。
+
+### 五、已知边界（如实记录）
+- 老表 `payment_ledger` 与规范表 `paid_message_ledger` 并存未合并：新业务一律走 `paidflow/send` → `paid_message_ledger`；`/v1/ledger/*` 老端点保留兼容，后续版本做数据迁移与收口。
+- 黑名单目前按 sender 维度拦截；接收方在内存 blocklist 中拉 sender 的逻辑保留，PG 拦截为补充。

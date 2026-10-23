@@ -240,12 +240,27 @@ func (d *Deps) PaidFlowMux(serviceName string) http.Handler {
 			return
 		}
 
-		// 1.6) v0.9.4：检查黑名单
+		// 1.6) v0.9.4：检查黑名单（接收方在内存 blocklist 中拉黑了发送方）
 		if blocks.IsBlocked(req.ReceiverID, req.SenderID) {
 			writeJSON(w, http.StatusOK, PaidSendResponse{
 				MessageID: "", Status: "blocked", Reason: "you are blocked by receiver",
 			})
 			return
+		}
+
+		// 1.65) v1.5.3：PG blacklist 强制拦截。
+		// 旧实现 blacklistAdd 只写 PG blacklist 表、全代码无人 SELECT，等于拉黑不生效；
+		// 这里在 reserve 之前真实查库，被平台/接收方拉黑的 sender 直接拒绝，不落任何账。
+		if d.DB != nil {
+			var blacklisted int
+			if err := d.DB.QueryRow(
+				`SELECT 1 FROM blacklist WHERE user_id=$1`, itoa(int64(req.SenderID)),
+			).Scan(&blacklisted); err == nil {
+				writeJSON(w, http.StatusOK, PaidSendResponse{
+					MessageID: "", Status: "blocked", Reason: "sender is on blacklist",
+				})
+				return
+			}
 		}
 
 		// 1.7) v0.9.8：应用接收方偏好（自动接受/自动拒绝）
