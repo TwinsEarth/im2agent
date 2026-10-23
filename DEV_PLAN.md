@@ -386,3 +386,38 @@
 ### 五、已知边界（如实记录）
 - 老表 `payment_ledger` 与规范表 `paid_message_ledger` 并存未合并：新业务一律走 `paidflow/send` → `paid_message_ledger`；`/v1/ledger/*` 老端点保留兼容，后续版本做数据迁移与收口。
 - 黑名单目前按 sender 维度拦截；接收方在内存 blocklist 中拉 sender 的逻辑保留，PG 拦截为补充。
+
+
+---
+
+## v1.2 收尾：真实腾讯云 IM 外网发送打通（2026-10-23）
+
+### 背景
+v1.2.0-v1.2.4 重做时 REST 请求路径/参数/报文已按官方协议写好，但 UserSig 用的是网关自造 HMAC 票据，且缺真实凭证，长期返回 503/70003。本轮用户提供真实 SDKAppID+SecretKey 后打通。
+
+### 真实修复（internal/im/tim.go）
+- 新增 `officialUserSig(identifier)`，按官方 tls-sig-api-v2 字节级实现：
+  1. HMAC 明文（`\n` 分隔）：`TLS.identifier / TLS.sdkappid / TLS.time / TLS.expire(秒数)`；
+  2. `TLS.sig = base64(HmacSHA256(SecretKey, 明文) 原始字节)`；
+  3. 组装 JSON（`TLS.ver=2.0` + 上述字段 + `TLS.sig`）；
+  4. **zlib/deflate 压缩**（PHP `gzcompress` 是 RFC1950 zlib，不是 gzip 格式，第一版用 gzip.NewWriter 被腾讯云判 70003）；
+  5. URL-safe base64：`+ -> *`、`/ -> -`、`= -> _`。
+- `call()` 调腾讯云 REST 时 usersig 改用 `officialUserSig`；旧 `GenUserSig` 仅用于 `/v1/im/usersig` 内部登录票据签发，不参与对外发消息。
+- systemd drop-in `/etc/systemd/system/im2a-gateway.service.d/tim-credentials.conf` 注入 `TIM_SDK_APP_ID`/`TIM_SECRET_KEY`（chmod 600，不进 git）。
+
+### 真实外部调用断言（internal/im/tim_live_test.go）
+- env 无凭证则 skip；有凭证则真实 POST `https://console.tim.qq.com/v4/openim/sendmsg`。
+- 实跑结果：**PASS**，腾讯云返回 `ActionStatus=OK` 与真实 `MsgKey=68640026_2470269133_1792759314`。
+- 排障过程（真实错误码）：
+  - 第一版（base64(HMAC)）→ 70003 UserSig illegal；
+  - 第二版（明文+HMAC拼接 base64）→ 70003；
+  - 第三版（JSON+gzip+urlbase64）→ 70003；
+  - 终版（JSON+**zlib**+urlbase64）→ OK。
+
+### 运行态
+- 网关重编译重启后 active，`/healthz` 200；`systemctl show` 确认 `TIM_SDK_APP_ID=1600168829` 已注入（SecretKey 不回显、不入库）。
+- `Mode()` 由 `gateway-hmac` 变为 `tim-live`。
+
+### 已知边界
+- 当前只验证了 administrator→administrator C2C；向任意 C2C/群发送前，对端账号需在腾讯云控制台"账号管理"导入（否则 70107 no such account）。
+- 腾讯云 webhook 回调要求 HTTPS 公网可达，当前裸 HTTP:80，回调链路待后续配域名+证书。

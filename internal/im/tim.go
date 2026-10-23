@@ -13,8 +13,10 @@ package im
 
 import (
 	"bytes"
+	"compress/zlib"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,6 +26,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -152,6 +155,53 @@ func (c *Client) VerifyUserSig(userID string, expiresAt int64, sig string) error
 		return ErrBadSig
 	}
 	return nil
+}
+
+// officialUserSig 生成腾讯云官方 TLSSig v2（与官方 tls-sig-api-v2 字节级一致）。
+// 调腾讯云 REST API（v4/openim/*、group_open_http_svc/*）必须用它；上面的 GenUserSig
+// 只是网关自造登录票据，仅供 /v1/im/usersig 内部签发与验签，腾讯云不认。
+//
+// 算法（参考官方 TLSSigAPIv2）：
+//  1. HMAC 明文（\n 分隔）：TLS.identifier / TLS.sdkappid / TLS.time / TLS.expire(秒数)
+//  2. TLS.sig = base64( HmacSHA256(SecretKey, 明文) 原始字节 )
+//  3. 组装 JSON（TLS.ver=2.0 + 上述字段 + TLS.sig）
+//  4. gzcompress(JSON)
+//  5. URL-safe base64：+ -> *，/ -> -，= -> _
+func (c *Client) officialUserSig(identifier string) (string, error) {
+	if c.cfg.SecretKey == "" || c.cfg.SDKAppID == 0 {
+		return "", ErrNotConfigured
+	}
+	if identifier == "" {
+		return "", errors.New("empty identifier")
+	}
+	now := time.Now().Unix()
+	expireSec := int64(defaultSigTTL.Seconds()) // 7 天，相对秒数
+	plaintext := fmt.Sprintf("TLS.identifier:%s\nTLS.sdkappid:%d\nTLS.time:%d\nTLS.expire:%d\n",
+		identifier, c.cfg.SDKAppID, now, expireSec)
+	mac := hmac.New(sha256.New, []byte(c.cfg.SecretKey))
+	mac.Write([]byte(plaintext))
+	sigB64 := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	sigJSON, _ := json.Marshal(map[string]any{
+		"TLS.ver":        "2.0",
+		"TLS.identifier": identifier,
+		"TLS.sdkappid":   c.cfg.SDKAppID,
+		"TLS.expire":      expireSec,
+		"TLS.time":        now,
+		"TLS.sig":         sigB64,
+	})
+
+	var zb bytes.Buffer
+	// PHP gzcompress = zlib/deflate (RFC1950)，不是 gzip 格式；必须用 zlib.NewWriter。
+	zw := zlib.NewWriter(&zb)
+	if _, err := zw.Write(sigJSON); err != nil {
+		return "", err
+	}
+	if err := zw.Close(); err != nil {
+		return "", err
+	}
+	std := base64.StdEncoding.EncodeToString(zb.Bytes())
+	return strings.NewReplacer("+", "*", "/", "-", "=", "_").Replace(std), nil
 }
 
 // ---- v1.2.2: Webhook 回调验签（HMAC，防伪造 / 防重放）----
@@ -361,12 +411,12 @@ type timAPIResp struct {
 }
 
 func (c *Client) call(path string, body map[string]any) (*timAPIResp, error) {
-	adminSig, err := c.GenUserSig(c.cfg.AdminIdentifier)
+	sig, err := c.officialUserSig(c.cfg.AdminIdentifier)
 	if err != nil {
 		return nil, err
 	}
 	q := url.Values{}
-	q.Set("usersig", adminSig.Sig)
+	q.Set("usersig", sig)
 	q.Set("identifier", c.cfg.AdminIdentifier)
 	q.Set("sdkappid", strconv.FormatInt(c.cfg.SDKAppID, 10))
 	q.Set("contenttype", "json")
