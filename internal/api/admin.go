@@ -52,7 +52,7 @@ func (d *Deps) adminStats(w http.ResponseWriter, r *http.Request) {
 	stats["push_pending"] = d.countQ(ctx, `SELECT count(*) FROM im_push_tasks WHERE status='pending'`)
 
 	// 客服工单
-	stats["tickets"] = d.countQ(ctx, `SELECT count(*) FROM ticket_state`)
+	stats["tickets"] = d.countQ(ctx, `SELECT count(*) FROM support_tickets`)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"service": "IM2A Admin", "status": "ok", "stats": stats,
