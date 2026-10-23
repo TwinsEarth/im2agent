@@ -1,47 +1,59 @@
 package im
 
 // 真实腾讯云出站测试：必须 env TIM_SDK_APP_ID / TIM_SECRET_KEY 已配置，否则 skip。
-// 运行：TIM_SDK_APP_ID=... TIM_SECRET_KEY=... go test ./internal/im/ -run TestLiveSendC2C -v
 import (
 	"os"
+	"strconv"
 	"testing"
 )
 
-func TestLiveSendC2C(t *testing.T) {
-	appID, _ := parseInt64(os.Getenv("TIM_SDK_APP_ID"))
-	secret := os.Getenv("TIM_SECRET_KEY")
-	if appID == 0 || secret == "" {
+func liveClient(t *testing.T) *Client {
+	t.Helper()
+	appID, err := strconv.ParseInt(os.Getenv("TIM_SDK_APP_ID"), 10, 64)
+	if err != nil || appID == 0 {
 		t.Skip("TIM creds not set")
 	}
-	c := New(Config{SDKAppID: appID, SecretKey: secret, AdminIdentifier: "administrator"})
-	// 先给自己发（administrator 作为应用默认管理员账号一般已存在）
+	secret := os.Getenv("TIM_SECRET_KEY")
+	if secret == "" {
+		t.Skip("TIM creds not set")
+	}
+	return New(Config{SDKAppID: appID, SecretKey: secret, AdminIdentifier: "administrator"})
+}
+
+func TestLiveImportAndSendC2C(t *testing.T) {
+	c := liveClient(t)
+	for _, acc := range []struct{ id, nick string }{
+		{"im2a_alice", "IM2A Alice"},
+		{"im2a_bob", "IM2A Bob"},
+	} {
+		if err := c.ImportAccount(acc.id, acc.nick); err != nil {
+			t.Fatalf("ImportAccount(%s) failed: %v", acc.id, err)
+		}
+		t.Logf("imported OK: %s", acc.id)
+	}
 	rcpt, err := c.SendC2C(SendMessageReq{
 		FromUserID: "administrator",
-		ToUserID:   "administrator",
-		Text:       "IM2A live e2e ping from v1.2 real TIM channel",
+		ToUserID:   "im2a_alice",
+		Text:       "IM2A live e2e: admin -> alice via real Tencent Cloud channel",
 	})
 	if err != nil {
-		t.Fatalf("SendC2C real call failed: %v", err)
+		t.Fatalf("SendC2C admin->alice failed: %v", err)
 	}
 	if rcpt.MsgKey == "" {
-		t.Errorf("expected real MsgKey from Tencent Cloud, got empty")
+		t.Fatal("expected real MsgKey admin->alice, got empty")
 	}
-	t.Logf("LIVE OK: got real Tencent MsgKey=%s at=%d", rcpt.MsgKey, rcpt.At)
-}
+	t.Logf("LIVE OK admin->alice MsgKey=%s at=%d", rcpt.MsgKey, rcpt.At)
 
-func parseInt64(s string) (int64, error) {
-	var n int64
-	for _, ch := range s {
-		if ch < '0' || ch > '9' {
-			return 0, errBad
-		}
-		n = n*10 + int64(ch-'0')
+	rcpt2, err := c.SendC2C(SendMessageReq{
+		FromUserID: "im2a_alice",
+		ToUserID:   "im2a_bob",
+		Text:       "IM2A live e2e: alice -> bob",
+	})
+	if err != nil {
+		t.Fatalf("SendC2C alice->bob failed: %v", err)
 	}
-	return n, nil
+	if rcpt2.MsgKey == "" {
+		t.Fatal("expected real MsgKey alice->bob, got empty")
+	}
+	t.Logf("LIVE OK alice->bob MsgKey=%s", rcpt2.MsgKey)
 }
-
-var errBad = errParse{}
-
-type errParse struct{}
-
-func (errParse) Error() string { return "parse int" }

@@ -500,6 +500,23 @@ func (c *Client) SendGroup(req GroupSendReq) (*Receipt, error) {
 	}, nil
 }
 
+// ImportAccount 把账号导入腾讯云 IM 账号体系（/v4/im_open_login_svc/account_import）。
+// 发 C2C/群消息前，From_Account/To_Account 必须是已导入账号，否则腾讯云返回 70107。
+// 重复导入同一 Identifier 腾讯云幂等返回 OK。
+func (c *Client) ImportAccount(identifier string, nick string) error {
+	if identifier == "" {
+		return errors.New("empty identifier")
+	}
+	if !c.Available() {
+		return ErrNotConfigured
+	}
+	_, err := c.call("/v4/im_open_login_svc/account_import", map[string]any{
+		"Identifier": identifier,
+		"Nick":       nick,
+	})
+	return err
+}
+
 // ---- v1.2.3: 分发器 ----
 
 // Dispatcher 消息路由器：按 msgType 把消息分发到三条通道。
