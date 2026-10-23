@@ -15,6 +15,7 @@ func (d *Deps) AdminMux() http.Handler {
 	mux.HandleFunc("GET /v1/admin/agents", d.adminAgents)
 	d.adminSupportRegister(mux)
 	d.auditViewRegister(mux)
+	d.moderationAdminRegister(mux)
 	return mux
 }
 
@@ -314,6 +315,22 @@ button{background:var(--acc);border:0;color:#fff;border-radius:8px;padding:9px 1
 </div>
 <div id="replay"></div>
 <div id="auditlist"></div></div>
+<div class="sec"><h2>内容审核</h2>
+<div id="modrules" style="margin-bottom:8px"></div>
+<div style="margin:8px 0;display:flex;flex-wrap:wrap;gap:6px">
+ <input class="afin" id="nr_code" placeholder="规则 code（唯一）" style="width:150px">
+ <input class="afin" id="nr_pat" placeholder="匹配词/正则" style="width:150px">
+ <select class="afin" id="nr_type"><option value="1">关键词</option><option value="2">手机号</option><option value="3">URL</option><option value="4">正则</option></select>
+ <select class="afin" id="nr_act"><option value="1">拦截</option><option value="2">转人工</option></select>
+ <button class="tbtn" onclick="addRule()">新增规则</button>
+</div>
+<div style="margin:8px 0">
+ <button class="tbtn" data-m="0" onclick="loadModQueue(0)">待审</button>
+ <button class="tbtn" data-m="1" onclick="loadModQueue(1)">放行</button>
+ <button class="tbtn" data-m="2" onclick="loadModQueue(2)">拦截</button>
+ <button class="tbtn" data-m="3" onclick="loadModQueue(3)">误报</button>
+</div>
+<div id="modqueue"></div></div>
 <script>
 var CARDS=[
  ["users_total","用户总数"],["im_accounts","IM 账号"],["agent_capabilities","Agent 能力"],
@@ -389,6 +406,40 @@ function loadTickets(){
  }).catch(function(){});
 }
 
+
+var MODTYPE={1:"关键词",2:"手机号",3:"URL",4:"正则"};
+var MODMANUAL=["未审","放行","拦截","误报"];
+var MODAUTO=["待审","自动放行","自动拦截"];
+function loadModRules(){
+ jget("/v1/admin/moderation/rules").then(function(r){
+  document.getElementById("modrules").innerHTML=(r.rules||[]).map(function(x){
+   return '<span class="pill">'+esc(x.code)+' '+MODTYPE[x.rule_type]+' '+(x.pattern?esc(x.pattern):"(内置)")+' '+(x.action===1?"拦截":"转人工")+' <b style="color:'+(x.enabled?"var(--ok)":"var(--bad)")+'">'+(x.enabled?"启用":"停用")+'</b></span> <button class="tbtn" onclick="toggleRule('+x.id+','+(x.enabled?0:1)+')">'+(x.enabled?"停用":"启用")+'</button> ';
+  }).join("");
+ }).catch(function(){});
+}
+function addRule(){
+ var body={code:document.getElementById("nr_code").value.trim(),pattern:document.getElementById("nr_pat").value.trim(),rule_type:parseInt(document.getElementById("nr_type").value),action:parseInt(document.getElementById("nr_act").value)};
+ if(!body.code){alert("请填写规则 code");return;}
+ jpost("/v1/admin/moderation/rules",body).then(function(){document.getElementById("nr_code").value="";document.getElementById("nr_pat").value="";loadModRules();}).catch(function(e){alert(String(e));});
+}
+function toggleRule(id,en){jpost("/v1/admin/moderation/rules/"+id+"/toggle",{enabled:en}).then(loadModRules);}
+function loadModQueue(st){
+ Array.prototype.forEach.call(document.querySelectorAll("[data-m]"),function(b){b.className="tbtn"+(Number(b.getAttribute("data-m"))===st?" on":"");});
+ jget("/v1/admin/moderation/queue?status="+st+"&limit=100").then(function(r){
+  document.getElementById("modqueue").innerHTML=(r.items||[]).map(function(q){
+   return '<div class="ticket"><div class="th"><div><b>['+MODAUTO[q.auto_decision]+']</b> '+esc(q.content)+'</div><div class="who">'+(q.created_at||"").slice(0,19)+'</div></div>'+
+    '<div class="sub">ref '+esc(q.ref)+' · 命中 '+esc(JSON.stringify(q.hit_rules))+' · 人工 '+MODMANUAL[q.manual_status]+' '+(q.reviewer?("· "+esc(q.reviewer)):"")+'</div>'+
+    '<div style="margin-top:6px"><button class="tbtn" onclick="modReview('+q.id+',1)">放行</button> <button class="tbtn" onclick="modReview('+q.id+',2)">拦截</button> <button class="tbtn" onclick="modReview('+q.id+',3)">误报</button></div></div>';
+  }).join("")||'<div class="sub">无</div>';
+ }).catch(function(){});
+}
+function modReview(id,dec){
+ var d=["allow","block","false_positive"][dec-1];
+ jpost("/v1/admin/moderation/"+id+"/review",{decision:d,reviewer:"admin"}).then(function(){
+  var on=document.querySelector("[data-m].on"); loadModQueue(on?Number(on.getAttribute("data-m")):0);
+ });
+}
+
 function dclass(d){return (d==="approved"||d==="allow"||d==="ok")?"dok":((d==="rejected"||d==="block"||d==="blocked")?"dbad":"");}
 function loadAuditAgg(){
  return jget("/v1/admin/audit/aggregate").then(function(r){
@@ -431,7 +482,7 @@ function replyTicket(id,status){
 }
 function closeTicket(id){jpost("/v1/admin/tickets/"+id+"/status",{status:4,assignee:"kefu"}).then(function(){loadTickets();});}
 
-function loadAll(){load().then(function(){return loadDetails().catch(function(){}).then(function(){return loadTickets();}).then(function(){loadAuditAgg();loadAudit();});});}
+function loadAll(){load().then(function(){return loadDetails().catch(function(){}).then(function(){return loadTickets();}).then(function(){loadAuditAgg();loadAudit();loadModRules();loadModQueue(0);});});}
 window.addEventListener("load",function(){
  var t=localStorage.getItem("im2a_admin_tok");if(t){document.getElementById("tok").value=t;loadAll();}
  setInterval(function(){if(document.getElementById("tok").value.trim())loadAll();},10000);

@@ -121,6 +121,7 @@ func main() {
 	deps.PushClient = &push.Client{BaseURL: os.Getenv("TIM_BASE_URL"), SDKAppID: "1600168829", HTTP: http.DefaultClient}
 	mux.Handle("/v1/push/", wrap(deps.PushMux()))
 	mux.Handle("/v1/support/", wrap(deps.SupportMux()))
+	mux.Handle("/v1/moderation/", wrap(deps.ModerationMux()))
 	mux.Handle("/v1/intent/", wrap(deps.LLMIntentMux()))
 	mux.Handle("/v1/guard/", wrap(deps.LLMGuardMux()))
 	mux.Handle("/v1/distill/feedback", wrap(deps.LLMDistillMux()))
