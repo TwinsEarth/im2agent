@@ -38,8 +38,8 @@ func (d *Deps) ExperienceMux() http.Handler {
 		write(w,201,map[string]any{"id":id,"status":"proposed","approved":false})
 	})
 	mux.HandleFunc("POST /v1/exp/patterns/{id}/approve", func(w http.ResponseWriter,r *http.Request){
-		var id int64; json.NewDecoder(r.Body).Decode(struct{}{})
-		// id 取自路径
+		var id int64
+		// id 取自路径（approve 无需请求体）
 		pathID := r.PathValue("id")
 		if _,err:=fmt.Sscanf(pathID,"%d",&id); err!=nil { write(w,400,map[string]any{"error":"bad id"}); return }
 		if err:=svc.ApprovePattern(r.Context(),id); err!=nil { write(w,400,map[string]any{"error":err.Error()}); return }
