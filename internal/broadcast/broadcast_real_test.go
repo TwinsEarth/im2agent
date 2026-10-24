@@ -27,8 +27,14 @@ CREATE TABLE IF NOT EXISTS wechat_broadcasts (
     failed         INTEGER NOT NULL DEFAULT 0,
     created_by     TEXT NOT NULL DEFAULT '',
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    finished_at    TIMESTAMPTZ
+    finished_at    TIMESTAMPTZ,
+    idempotency_key TEXT NOT NULL DEFAULT ''
 );
+-- 已存在的旧表补上幂等列（CREATE TABLE IF NOT EXISTS 不会改旧表）。
+ALTER TABLE wechat_broadcasts ADD COLUMN IF NOT EXISTS idempotency_key TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bc_idem_key
+    ON wechat_broadcasts(idempotency_key)
+    WHERE idempotency_key <> '';
 CREATE TABLE IF NOT EXISTS wechat_broadcast_deliveries (
     id           BIGSERIAL PRIMARY KEY,
     broadcast_id TEXT NOT NULL REFERENCES wechat_broadcasts(id) ON DELETE CASCADE,
@@ -139,7 +145,7 @@ func TestBroadcastReal(t *testing.T) {
 	}
 	wantTotal := len(targets)
 
-	id, n, err := svc.Create(ctx, "【通知】测试广播 dry-run "+suf, "test")
+	id, n, err := svc.Create(ctx, "【通知】测试广播 dry-run "+suf, "test", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +227,95 @@ func TestBroadcastEmptyText(t *testing.T) {
 	fs := &fakeSender{}
 	fa := &fakeAccounts{m: map[string]string{"acc_sender": "x@im.wechat"}}
 	svc := New(db, fs, fa).WithConcurrency(2, time.Millisecond)
-	if _, _, err := svc.Create(context.Background(), "   ", "test"); err == nil {
+	if _, _, err := svc.Create(context.Background(), "   ", "test", ""); err == nil {
 		t.Fatal("want error for empty text")
+	}
+}
+
+// TestBroadcastIdempotency：同一幂等键在窗口内重复创建只返回同一条任务，且发送器只被调用一次；
+// 不同幂等键则各自独立成任务。验证"浏览器丢响应后重试"绝不重复群发。
+func TestBroadcastIdempotency(t *testing.T) {
+	dsn := os.Getenv("PG_DSN")
+	if dsn == "" {
+		t.Skip("PG_DSN not set")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if _, err := db.Exec(bcDDL); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	suf := fmt.Sprintf("bcidem_%d", time.Now().UnixNano())
+	grp := "grp_" + suf
+	sender := suf + "_sender@im.wechat"
+	t1 := suf + "_t1@im.wechat"
+	if _, err := db.Exec(`INSERT INTO wechat_bot_groups(id,owner_user,name,status) VALUES($1,'test_bc','idem','active')`, grp); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM wechat_bindings WHERE group_id=$1`, grp)
+		_, _ = db.Exec(`DELETE FROM wechat_bot_groups WHERE id=$1`, grp)
+	})
+	for _, b := range [][2]string{{"bind_" + suf + "_w", sender}, {"bind_" + suf + "_1", t1}} {
+		dev := "windows"
+		if b[1] == t1 {
+			dev = "ios"
+		}
+		if _, err := db.Exec(`INSERT INTO wechat_bindings(id,group_id,wxid,device_type,status) VALUES($1,$2,$3,$4,'online')`,
+			b[0], grp, b[1], dev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("BROADCAST_ACCOUNT", "acc_sender")
+	fs := &fakeSender{}
+	fa := &fakeAccounts{m: map[string]string{"acc_sender": sender}}
+	svc := New(db, fs, fa).WithConcurrency(2, time.Millisecond)
+
+	idem := "idem_" + suf
+	id1, n1, err := svc.Create(ctx, "【通知】幂等测试 "+suf, "test", idem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM wechat_broadcasts WHERE idempotency_key IN($1,$2)`, idem, idem+"_b")
+	})
+	if n1 < 1 {
+		t.Fatalf("first create total = %d, want >=1", n1)
+	}
+	// 模拟浏览器丢失 202 响应后重试：相同幂等键 + 相同文案。
+	id2, n2, err := svc.Create(ctx, "【通知】幂等测试 "+suf, "test", idem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id1 != id2 || n1 != n2 {
+		t.Fatalf("idempotent replay must return same task: %s/%d vs %s/%d", id1, n1, id2, n2)
+	}
+	// 不同幂等键创建（视为另一次群发），应得到新任务。
+	id3, n3, err := svc.Create(ctx, "【通知】幂等测试 另一条 "+suf, "test", idem+"_b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id3 == id1 {
+		t.Fatalf("different idempotency key must create a new task, got same id %s", id3)
+	}
+	if n3 != n1 {
+		t.Fatalf("second task target count = %d, want %d (same live target set)", n3, n1)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var cnt int
+		_ = db.QueryRow(`SELECT count(*) FROM wechat_broadcasts WHERE id IN($1,$2) AND status IN('completed','partial','failed')`, id1, id3).Scan(&cnt)
+		if cnt == 2 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	// 仅两条任务被创建（重试合并），发送器总调用 = 任务1目标数 + 任务2目标数，重试零多发。
+	if got, want := fs.count(), n1+n3; got != want {
+		t.Fatalf("sender calls = %d, want %d (retry must not resend)", got, want)
 	}
 }

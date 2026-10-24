@@ -172,6 +172,12 @@ func TestRelayPeerPushReal(t *testing.T) {
 	}
 	fs := &fakeSender{}
 	svc.WithPeerSender(fs)
+	// 收件人 B 有自己的 openclaw 账号（真机投递必须用 B 自己的账号发 B 自己）。
+	peerAccount := suf + "-peer-im-bot"
+	if err := os.WriteFile(filepath.Join(svc.resolver.dir, peerAccount+".json"),
+		[]byte(`{"userId":"`+peerWxid+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	body := "请你转达：明天九点开会"
 	res, err := svc.Relay(ctx, accountID, fromWxid, "@"+peerWxid+" "+body, "peerpush_"+fmt.Sprintf("%d", time.Now().UnixNano()))
@@ -179,7 +185,7 @@ func TestRelayPeerPushReal(t *testing.T) {
 		t.Fatalf("relay peer push: %v", err)
 	}
 	// 出站确实被调用，且发送账号=from bot、目标=peer
-	if fs.calls != 1 || fs.lastAccount != accountID || fs.lastTarget != peerWxid {
+	if fs.calls != 1 || fs.lastAccount != peerAccount || fs.lastTarget != peerWxid {
 		t.Fatalf("sender calls=%d account=%s target=%s text=%q", fs.calls, fs.lastAccount, fs.lastTarget, fs.lastText)
 	}
 	if !res.PeerDelivered || res.PeerMessageID == "" {

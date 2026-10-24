@@ -107,15 +107,42 @@ function loadPreview(){
     document.getElementById("targets").innerHTML=html;
   }).catch(function(e){document.getElementById("targets").innerHTML='<span class="st-fail">加载失败：'+esc(e.message)+'</span>';});
 }
+var sendKey="";
+var sendKeyText="";
+function newIdemKey(){return "bc-key-"+Date.now()+"-"+Math.random().toString(36).slice(2,10);}
 function send(){
   var text=document.getElementById("msg").value.trim();
   if(!text){alert("请输入广播文案");return;}
   if(!confirm("确认向全部在线用户群发该通知？"))return;
+  // 文案变化或上一轮已结束 → 换新幂等键；同一轮重试沿用旧键（绝不重复群发）。
+  if(!sendKey||sendKeyText!==text){sendKey=newIdemKey();sendKeyText=text;}
   var btn=document.getElementById("sendBtn");btn.disabled=true;btn.textContent="群发中…";
-  api("/v1/admin/broadcast",{method:"POST",body:JSON.stringify({text:text})}).then(function(j){
-    document.getElementById("progCard").style.display="block";
+  document.getElementById("progCard").style.display="block";
+  api("/v1/admin/broadcast",{method:"POST",body:JSON.stringify({text:text,idempotencyKey:sendKey})}).then(function(j){
     poll(j.id);
-  }).catch(function(e){alert("创建失败："+e.message);btn.disabled=false;btn.textContent="一键群发";});
+  }).catch(function(e){
+    // 弱网/移动网络下服务端可能已落库并群发，但 202 响应没回到浏览器（表现为 Failed to fetch）。
+    // 不能直接报失败诱导重复群发：先按幂等键回查，找到任务即进入轮询。
+    reconcile(sendKey,text,btn,e);
+  });
+}
+function reconcile(key,text,btn,origErr){
+  api("/v1/admin/broadcast?limit=10").then(function(j){
+    var found="";
+    (j.broadcasts||[]).forEach(function(b){
+      if(!found && (b.idempotency_key===key || b.text===text)){found=b.id;}
+    });
+    if(found){
+      document.getElementById("progCard").style.display="block";
+      poll(found);
+    }else{
+      alert("创建失败："+origErr.message+"（服务端未查到该任务，可重试）");
+      btn.disabled=false;btn.textContent="一键群发";
+    }
+  }).catch(function(){
+    alert("创建失败："+origErr.message+"（回查也失败，请稍后刷新查看历史广播）");
+    btn.disabled=false;btn.textContent="一键群发";
+  });
 }
 function poll(id){
   api("/v1/admin/broadcast?id="+encodeURIComponent(id)).then(function(j){
@@ -134,7 +161,7 @@ function poll(id){
     }).join("");
     document.getElementById("dels").innerHTML=rows;
     if(b.status==="running"||b.status==="pending"){setTimeout(function(){poll(id);},1500);}
-    else{var btn=document.getElementById("sendBtn");btn.disabled=false;btn.textContent="一键群发";loadHistory();}
+    else{var btn=document.getElementById("sendBtn");btn.disabled=false;btn.textContent="一键群发";sendKey="";sendKeyText="";loadHistory();}
   }).catch(function(e){setTimeout(function(){poll(id);},2000);});
 }
 function loadHistory(){

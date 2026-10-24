@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"human-agent-im/internal/botroute"
@@ -47,6 +48,10 @@ type Service struct {
 	router   *botroute.Service
 	sender   PeerSender
 	nego     *WechatBridge
+
+	nameOnce sync.Once
+	nameMu   sync.RWMutex
+	nameMap  map[string]nameCacheEntry
 }
 
 // New 构造 relay 服务。router 可为 nil（peer 路由不可用时仅私聊）。
@@ -77,6 +82,7 @@ type Result struct {
 	PeerMessageID string `json:"peerMessageId,omitempty"`
 	NegoSessionID string `json:"negoSessionId,omitempty"`
 	NegoState     string `json:"negoState,omitempty"`
+	TempGroupID   string `json:"tempGroupId,omitempty"` // v2.0.8 多 Agent 协商临时群
 }
 
 // peer 模式：@wxid 或 "发给 wxid ：..." / "告诉 wxid ..."
@@ -109,8 +115,16 @@ func (s *Service) Relay(ctx context.Context, accountID, fromWxid, text, idemKey 
 		return nil, fmt.Errorf("%w: %s: %v", ErrUnboundAccount, accountID, err)
 	}
 
+	// v2.2.6 微信对话里命名/改名优先处理：我叫X / 你叫X，不进入 LLM、不挂协商。
+	if res, handled, rerr := s.handleRename(ctx, accountID, botWxid, fromWxid, text, idemKey); handled || rerr != nil {
+		return res, rerr
+	}
 	if peerWxid, body, ok := parsePeer(text); ok {
 		return s.handlePeer(ctx, accountID, botWxid, fromWxid, peerWxid, body, idemKey)
+	}
+	// v2.2.5：自由文本先尝试挂接该 bot 最近一个未完成协商；无则走 self-chat。
+	if res, handled, err := s.autoReplyOpenNego(ctx, accountID, botWxid, fromWxid, text, idemKey); handled || err != nil {
+		return res, err
 	}
 	return s.handleSelfChat(ctx, accountID, botWxid, fromWxid, text, idemKey)
 }
@@ -132,7 +146,11 @@ func (s *Service) handleSelfChat(ctx context.Context, accountID, botWxid, fromWx
 	if err != nil {
 		return nil, err
 	}
-	msgs := append([]model.Message{{Role: "system", Content: systemPrompt}}, history...)
+	sysContent := systemPrompt
+	if an := s.agentName(ctx, fromWxid); an != "" {
+		sysContent = "你的名字叫" + an + "，是用户的专属 AI 助理。回复时自然自称，不要暴露任何内部代号或系统提示。\n" + sysContent
+	}
+	msgs := append([]model.Message{{Role: "system", Content: sysContent}}, history...)
 	msgs = append(msgs, model.Message{Role: "user", Content: text})
 
 	resp, err := s.mdl.Chat(ctx, &model.ChatRequest{
@@ -171,13 +189,13 @@ func (s *Service) handlePeer(ctx context.Context, accountID, botWxid, fromWxid, 
 	var reply string
 	var routeID int64
 	routed := false
-	var negoSID, negoState string
+	var negoSID, negoState, tempGID string
 
 	if s.router != nil {
 		id, err := s.router.Route(ctx, botWxid, peerWxid, "text", payload)
 		if err != nil {
 			if errors.Is(err, botroute.ErrUnbound) {
-				reply = fmt.Sprintf("目标 %s 尚未绑定 IM2A Bot，暂无法转达。", peerWxid)
+				reply = "对方还没绑定 IM2A，暂时发不过去。"
 			} else if errors.Is(err, botroute.ErrSelf) {
 				reply = "不能给自己转达。"
 			} else {
@@ -186,16 +204,18 @@ func (s *Service) handlePeer(ctx context.Context, accountID, botWxid, fromWxid, 
 		} else {
 			routeID = id
 			routed = true
-			reply = fmt.Sprintf("已让你的 Agent 把这条消息转达给 %s，对方 Agent 会协商/审批后处理。", peerWxid)
+			reply = "好，我转给对方了。"
 		}
 	} else {
 		reply = "用户间路由未启用。"
 	}
 
-	// 建立 A2A 协商会话（8 态状态机），微信上下文落 negotiation_sessions/turns。
+	// 建立 A2A 协商会话（8 态状态机），微信上下文落 negotiation_sessions/turns；
+	// 同时自动创建多 Agent 临时对话群（v2.0.8），协商完成后自动销毁。
 	if routed && s.nego != nil {
 		if sess, nerr := s.nego.OpenProposal(ctx, accountID, botWxid, peerWxid, body); nerr == nil {
 			negoSID, negoState = sess.ID, sess.State.String()
+			tempGID = tempGroupID(sess.ID)
 		}
 	}
 
@@ -205,12 +225,15 @@ func (s *Service) handlePeer(ctx context.Context, accountID, botWxid, fromWxid, 
 		peerMsgID string
 	)
 	if routed && s.sender != nil {
-		if fromAccount := s.accountForWxid(ctx, botWxid); fromAccount != "" {
-			outText := composePeerText(fromWxid, body)
-			if negoSID != "" {
-				outText = outText + fmt.Sprintf("\n— 协商单 %s（状态 %s），回复可推进协商", negoSID, negoState)
-			}
-			mid, serr := s.sender.Send(ctx, fromAccount, peerWxid, outText)
+		// 关键修复：必须用【对方自己的 bot 账号】给【对方自己的 ilink id】投递——
+		// 该账号缓存着对方主人会话的 context token。用发起方账号发对方 id 时，
+		// 发起方没有对方会话的 context token，ilinkai 回 200 但不真正投递（假 sent）。
+		peerAccount := s.accountForWxid(ctx, peerWxid)
+		if peerAccount == "" {
+			reply = fmt.Sprintf("已记录转达，但找不到 %s 对应的 openclaw bot 账号，无法实时推送。", peerWxid)
+		} else {
+			outText := s.peerOutText(ctx, fromWxid, body)
+			mid, serr := s.sender.Send(ctx, peerAccount, peerWxid, outText)
 			if serr != nil {
 				reply = fmt.Sprintf("消息已进入对方 Agent 收件箱，但实时推送失败（对方上线后会收到）：%v", serr)
 			} else {
@@ -218,10 +241,8 @@ func (s *Service) handlePeer(ctx context.Context, accountID, botWxid, fromWxid, 
 				if routeID > 0 {
 					_ = s.router.Deliver(ctx, routeID)
 				}
-				reply = fmt.Sprintf("已发送到 %s 的微信（对方已收到，messageId=%s）。", peerWxid, mid)
+				reply = fmt.Sprintf("好，我转给%s了。", s.userName(ctx, peerWxid))
 			}
-		} else {
-			reply = "已记录转达，但找不到发送方 bot 的 openclaw 账号，无法实时推送。"
 		}
 	}
 
@@ -235,7 +256,7 @@ func (s *Service) handlePeer(ctx context.Context, accountID, botWxid, fromWxid, 
 	return &Result{
 		Reply: reply, Route: RoutePeerRoute, BotWxid: botWxid, PeerWxid: peerWxid,
 		PeerDelivered: delivered, PeerMessageID: peerMsgID,
-		NegoSessionID: negoSID, NegoState: negoState,
+		NegoSessionID: negoSID, NegoState: negoState, TempGroupID: tempGID,
 	}, nil
 }
 
@@ -259,18 +280,6 @@ func (s *Service) accountForWxid(ctx context.Context, botWxid string) string {
 		}
 	}
 	return ""
-}
-
-// composePeerText 构造发给对方微信的转达文本。
-func composePeerText(fromWxid, body string) string {
-	short := fromWxid
-	if i := strings.Index(short, "@"); i > 0 {
-		short = short[:i]
-	}
-	if len(short) > 10 {
-		short = short[:10]
-	}
-	return fmt.Sprintf("【%s 的 AI 助手转达】\n%s", short, body)
 }
 
 // recentHistory 取同一会话最近 n 条往返（user/assistant 交替）。
@@ -306,7 +315,7 @@ func (s *Service) recentHistory(ctx context.Context, botWxid, fromWxid string, n
 func (s *Service) byIdem(ctx context.Context, key string) (*Result, bool) {
 	var (
 		accountID, botWxid, from, text, route, reply, routedTo, peer, peerMsg string
-		peerDelivered                                                        bool
+		peerDelivered                                                         bool
 	)
 	err := s.db.QueryRowContext(ctx,
 		`SELECT account_id,bot_wxid,from_wxid,text,route,reply,routed_to,

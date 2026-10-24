@@ -132,14 +132,43 @@ func newID() string {
 	return fmt.Sprintf("bc_%d_%s", time.Now().Unix(), hex.EncodeToString(b))
 }
 
+// idemWindow 幂等键复用窗口：窗口内同键的重复请求只返回原任务，不重复群发。
+const idemWindow = 10 * time.Minute
+
+// FindByIdem 按幂等键查找窗口内已存在的广播任务，返回 (id,total,found)。
+func (s *Service) FindByIdem(ctx context.Context, key string) (string, int, bool) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", 0, false
+	}
+	var id string
+	var total int
+	cutoff := time.Now().Add(-idemWindow)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id,total FROM wechat_broadcasts
+		  WHERE idempotency_key=$1 AND created_at > $2
+		  ORDER BY created_at DESC LIMIT 1`, key, cutoff).Scan(&id, &total)
+	if err != nil {
+		return "", 0, false
+	}
+	return id, total, true
+}
+
 // Create 落一条广播任务与全部 pending 投递，并异步执行。返回任务 id 与目标数。
-func (s *Service) Create(ctx context.Context, text, createdBy string) (string, int, error) {
+// idemKey 非空时做幂等：同键在窗口内重复请求（弱网重试/重复点击）只返回原任务，
+// 绝不重复创建、重复群发。
+func (s *Service) Create(ctx context.Context, text, createdBy, idemKey string) (string, int, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return "", 0, errors.New("broadcast: empty text")
 	}
 	if len([]rune(text)) > 4000 {
 		return "", 0, errors.New("broadcast: text too long (max 4000)")
+	}
+	idemKey = strings.TrimSpace(idemKey)
+	// 快速路径：窗口内已存在同键任务（最常见的"响应丢失后重试"场景），直接返回原任务。
+	if id, total, ok := s.FindByIdem(ctx, idemKey); ok {
+		return id, total, nil
 	}
 	targets, senderAccount, senderWxid, err := s.Targets(ctx)
 	if err != nil {
@@ -153,13 +182,22 @@ func (s *Service) Create(ctx context.Context, text, createdBy string) (string, i
 	if err != nil {
 		return "", 0, err
 	}
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO wechat_broadcasts(id,text,sender_account,sender_wxid,status,total,created_by)
-		 VALUES($1,$2,$3,$4,'running',$5,$6)`,
-		id, text, senderAccount, senderWxid, len(targets), createdBy)
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO wechat_broadcasts(id,text,sender_account,sender_wxid,status,total,created_by,idempotency_key)
+		 VALUES($1,$2,$3,$4,'running',$5,$6,$7)
+		 ON CONFLICT (idempotency_key) WHERE idempotency_key <> '' DO NOTHING`,
+		id, text, senderAccount, senderWxid, len(targets), createdBy, idemKey)
 	if err != nil {
 		tx.Rollback()
 		return "", 0, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// ON CONFLICT DO NOTHING 命中（同键任务已被并发请求抢先创建）。
+		_ = tx.Rollback()
+		if eid, total, found := s.FindByIdem(ctx, idemKey); found {
+			return eid, total, nil
+		}
+		return "", 0, errors.New("broadcast: idempotent conflict, existing task not found")
 	}
 	for _, w := range targets {
 		if _, err := tx.ExecContext(ctx,
@@ -262,15 +300,15 @@ func truncate(s string, n int) string {
 // Get 返回广播任务与投递明细。
 func (s *Service) Get(ctx context.Context, id string) (map[string]any, error) {
 	var (
-		text, senderAccount, senderWxid, status, createdBy string
-		total, sent, failed                                int
-		createdAt                                          time.Time
-		finishedAt                                         sql.NullTime
+		text, senderAccount, senderWxid, status, createdBy, idemKey string
+		total, sent, failed                                        int
+		createdAt                                                  time.Time
+		finishedAt                                                 sql.NullTime
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT text,sender_account,sender_wxid,status,total,sent,failed,created_by,created_at,finished_at
+		`SELECT text,sender_account,sender_wxid,status,total,sent,failed,created_by,created_at,finished_at,idempotency_key
 		   FROM wechat_broadcasts WHERE id=$1`, id).
-		Scan(&text, &senderAccount, &senderWxid, &status, &total, &sent, &failed, &createdBy, &createdAt, &finishedAt)
+		Scan(&text, &senderAccount, &senderWxid, &status, &total, &sent, &failed, &createdBy, &createdAt, &finishedAt, &idemKey)
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +316,7 @@ func (s *Service) Get(ctx context.Context, id string) (map[string]any, error) {
 		"id": id, "text": text, "sender_account": senderAccount, "sender_wxid": senderWxid,
 		"status": status, "total": total, "sent": sent, "failed": failed,
 		"created_by": createdBy, "created_at": createdAt, "finished_at": nil,
+		"idempotency_key": idemKey,
 	}
 	if finishedAt.Valid {
 		bc["finished_at"] = finishedAt.Time
@@ -310,7 +349,7 @@ func (s *Service) List(ctx context.Context, limit int) ([]map[string]any, error)
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id,status,total,sent,failed,created_by,created_at,finished_at
+		`SELECT id,status,total,sent,failed,created_by,created_at,finished_at,idempotency_key
 		   FROM wechat_broadcasts ORDER BY created_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -318,16 +357,17 @@ func (s *Service) List(ctx context.Context, limit int) ([]map[string]any, error)
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, status, createdBy string
+		var id, status, createdBy, idemKey string
 		var total, sent, failed int
 		var createdAt time.Time
 		var finishedAt sql.NullTime
-		if err := rows.Scan(&id, &status, &total, &sent, &failed, &createdBy, &createdAt, &finishedAt); err != nil {
+		if err := rows.Scan(&id, &status, &total, &sent, &failed, &createdBy, &createdAt, &finishedAt, &idemKey); err != nil {
 			return nil, err
 		}
 		row := map[string]any{
 			"id": id, "status": status, "total": total, "sent": sent, "failed": failed,
 			"created_by": createdBy, "created_at": createdAt, "finished_at": nil,
+			"idempotency_key": idemKey,
 		}
 		if finishedAt.Valid {
 			row["finished_at"] = finishedAt.Time

@@ -581,10 +581,10 @@ ON CONFLICT (id) DO UPDATE SET
 				return err
 			}
 			_, err = tx.ExecContext(ctx, `
-INSERT INTO negotiation_turns (session_id, seq, from_agent_id, intent, payload, artifacts, created_at)
-VALUES ($1,$2,$3,$4,$5,$6,now())
+INSERT INTO negotiation_turns (session_id, seq, from_agent_id, to_agent_id, intent, payload, artifacts, created_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,now())
 ON CONFLICT (session_id, seq) DO NOTHING`,
-				s.ID, i+1, t.FromAgentID, string(t.Intent), string(payload), t.ArtifactRefs)
+				s.ID, i+1, t.FromAgentID, t.ToAgentID, string(t.Intent), string(payload), t.ArtifactRefs)
 			if err != nil {
 				return err
 			}
@@ -625,7 +625,7 @@ FROM negotiation_sessions WHERE id=$1`, id).
 		s.Deadline = deadlineT.Time
 	}
 	rows, err := n.db.QueryContext(ctx, `
-SELECT from_agent_id, intent, payload, artifacts
+SELECT from_agent_id, to_agent_id, intent, payload, artifacts
 FROM negotiation_turns WHERE session_id=$1 ORDER BY seq`, id)
 	if err != nil {
 		return nil, err
@@ -633,13 +633,17 @@ FROM negotiation_turns WHERE session_id=$1 ORDER BY seq`, id)
 	defer rows.Close()
 	for rows.Next() {
 		var t negotiation.Turn
-		var intent, payloadStr string
-		if err := rows.Scan(&t.FromAgentID, &intent, &payloadStr, &t.ArtifactRefs); err != nil {
+		var intent, payloadStr, turnTo string
+		if err := rows.Scan(&t.FromAgentID, &turnTo, &intent, &payloadStr, &t.ArtifactRefs); err != nil {
 			return nil, err
 		}
 		t.SessionID = s.ID
 		t.Intent = negotiation.Intent(intent)
-		t.ToAgentID = toA
+		// 兼容迁移 030 之前的历史轮次：无逐轮接收方时回退到会话级 to_agent_id。
+		t.ToAgentID = turnTo
+		if t.ToAgentID == "" {
+			t.ToAgentID = toA
+		}
 		_ = json.Unmarshal([]byte(payloadStr), &t.Payload)
 		s.Turns = append(s.Turns, t)
 	}

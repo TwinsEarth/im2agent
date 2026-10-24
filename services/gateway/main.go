@@ -14,6 +14,7 @@ import (
 	"human-agent-im/internal/metrics"
 	"human-agent-im/internal/openclaw"
 	"human-agent-im/internal/relay"
+	"human-agent-im/internal/tempgroup"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -377,12 +378,15 @@ func main() {
 		ocResolver := relay.NewAccountResolver(accountsDir)
 		relaySvc := relay.New(deps.DB, ocResolver, deps.Model, botroute.New(deps.DB)).
 			WithPeerSender(openclaw.NewSender()).
-			WithNegotiation(relay.NewWechatBridge(deps.Store.Negotiation))
+			WithNegotiation(relay.NewWechatBridge(deps.Store.Negotiation).
+				WithTempGroup(tempgroup.New(deps.DB)))
 		// v2.2.2 全量广播：复用同一 openclaw 账号解析器与出站发送器。
 		deps.Broadcast = broadcast.New(deps.DB, openclaw.NewSender(), ocResolver)
 		mux.Handle("/v2/wechat/mcp", api.NewMCPHandler(relaySvc))
 		// v2.2.1 标准 REST webhook（openclaw / 渠道确定性 POST），与 MCP 共用 relay 中枢。
 		mux.Handle("/v1/wechat/webhook", api.NewWechatWebhookHandler(relaySvc, deps.DB))
+		// v2.0.8 双 Agent 自动协商：双方 Agent 经 A2A 状态机多轮对谈，每轮真实推送给对方微信。
+		mux.Handle("/v1/wechat/auto-nego", api.NewWechatAutoNegoHandler(relaySvc))
 	}
 	mux.Handle("/v1/openclaw/", wrap(deps.WechatV2Mux())) // v2.1.2 扫码绑定
 	mux.Handle("/v1/directory/", wrap(deps.DirectoryMux()))

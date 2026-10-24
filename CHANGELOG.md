@@ -6,6 +6,30 @@
 
 ---
 
+## [v2.2.3] - 2026-10-24 (微信实机链路打通 · 用户命名 · 自然语言 · 广播幂等)
+
+### 新增
+- **微信里自助命名/改名**：用户直接对 Bot 说「我叫阿明」给自己起名、「你叫阿福」给专属 Agent 起名/改名（迁移 031：`wechat_identity.user_name/agent_name`）；后续所有转达、协商回执、临时群发言自动换成新昵称，单聊 systemPrompt 注入 Agent 名。
+- **协商文案去机器味**：手机侧不再出现协商单号/wxid/messageId/状态尾巴；发起方回执「好，我转给小红了。」、对方收到「阿明：正文」、回复回执「好，跟小红说了。」；单号只在后台 PG/审计。
+- **Agent 自动协商真投递**：自动轮次统一用「收件人自己的 openclaw 账号」发对方自身 ilink id（修正用发言方账号导致的假 sent/对方收不到），轮次文案改用对方昵称。
+- **可读协商单号防撞**：单号改为 `nego_<用户>_<Agent>_<时间>_随机段_3位CRC`，同秒连开两张不再撞主键。
+
+### 测试
+- `TestParseRename`（15 条：命名命中/问句/日常话不误判）+ `TestRenameReal`（真实 PG：起名/改名/缓存失效/peer 文案/零残留）。
+- 旧测试按「收件人账号投递」新逻辑校正（peer push、双 Agent 自动协商 wantSends），`go test ./internal/relay` 全 PASS。
+
+### 修复
+- 修复弱网/移动网络下运营后台一键群发弹"创建失败：Failed to fetch"：实排确认服务端实际已落库并群发（nginx 已写回 202，但响应在移动网络链路上丢失），浏览器误报失败、诱导重试会**重复群发**。
+- 服务端创建幂等：`wechat_broadcasts` 增加 `idempotency_key` 列与唯一部分索引（迁移 029）；`Create` 同键 10 分钟窗口内直接返回原任务，INSERT 用 `ON CONFLICT DO NOTHING` + RowsAffected 兜底并发竞态，重试绝不重复创建、重复群发。
+- API 支持 body `idempotencyKey` 与请求头 `X-Idempotency-Key`；`Get/List` 回传幂等键。
+- 前端失败自愈：每次群发生成幂等键，文案变化或上一轮终态才换键；POST 即使 Failed to fetch 也按幂等键回查任务并进入轮询，只有确实查不到才提示失败。
+- nginx 加固：显式 HTTP/1.1、清空 hop-by-hop Connection 头、补全代理超时，降低移动网络连接复用导致的响应丢失。
+
+### 测试
+- 新增 `TestBroadcastIdempotency`：同键重放返回同一任务、异键才新建、发送器调用次数 = 两条任务目标数（重试零多发），真实 PG 落库断言，fakeSender 不触达微信，t.Cleanup 零残留（广播/绑定/组）。
+
+---
+
 ## [v2.2.2] - 2026-10-24 (微信全量广播 · 运营后台一键群发)
 
 ### 新增

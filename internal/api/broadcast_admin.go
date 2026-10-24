@@ -12,20 +12,26 @@ func (d *Deps) broadcastAdminRegister(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/admin/broadcast", d.adminBroadcastQuery)
 }
 
-// POST /v1/admin/broadcast  {"text": "..."} → 创建并异步群发。
+// POST /v1/admin/broadcast  {"text": "...", "idempotencyKey": "..."} → 创建并异步群发。
+// 幂等键也可由请求头 X-Idempotency-Key 传入（浏览器丢响应后重试只命中同一条任务）。
 func (d *Deps) adminBroadcastCreate(w http.ResponseWriter, r *http.Request) {
 	if d.Broadcast == nil {
 		writeErr(w, http.StatusServiceUnavailable, "broadcast service not configured")
 		return
 	}
 	var req struct {
-		Text string `json:"text"`
+		Text           string `json:"text"`
+		IdempotencyKey string `json:"idempotencyKey"`
 	}
 	if err := decode(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
-	id, n, err := d.Broadcast.Create(r.Context(), req.Text, "admin")
+	idemKey := strings.TrimSpace(req.IdempotencyKey)
+	if hk := strings.TrimSpace(r.Header.Get("X-Idempotency-Key")); idemKey == "" {
+		idemKey = hk
+	}
+	id, n, err := d.Broadcast.Create(r.Context(), req.Text, "admin", idemKey)
 	if err != nil {
 		msg := err.Error()
 		code := http.StatusInternalServerError
