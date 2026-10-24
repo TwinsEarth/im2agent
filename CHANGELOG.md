@@ -7,6 +7,34 @@
 ---
 
 
+## [v2.3.6] - 2026-10-25 (B2 审批 action_hash 绑定)
+
+### 新增
+- 复用已有 `internal/approval` 事件溯源状态机（PENDING→REVIEWING→APPROVED→EXECUTING→COMPLETED/FAILED 已在 v0.x 落地，含 Escalate/CheckTimeouts）。
+- 给 `Ticket` 增加 `ActionHash` 字段；创建时通过 `payload["__action_hash__"]` 注入。
+- 新增 `Engine.BeginExecutingWithHash(id, by, hash)`：进入 EXECUTING 前强校验 hash 与创建时一致，不一致返回 `ErrActionHashMismatch`（防审批洗白：拿 A 的批准执行 B）。
+- 3 个单测：hash 正确通行、错误 hash 拒绝、老票据（无 hash）向后兼容、pending 直跳 executing 仍被状态机拒绝。
+
+### 价值
+- 审批与执行在代码层强绑定；Agent 不能"先批一个便宜的，再执行一个贵的"。
+
+---
+
+## [v2.3.6] - 2026-10-25 (B2 审批工作流状态机)
+
+### 新增
+- 迁移 `034_approval_tickets.sql`：表 `approval_tickets`，status 带 CHECK 约束（pending/approved/rejected/modified/executing/completed/failed），action_hash 防审批洗白。
+- 新包 `internal/approval`：
+  - 状态机转移：pending→approved/rejected/modified；approved→executing；executing→completed/failed；终态不可转移。
+  - `BeginExecute` 强制 action_hash 与审批时一致（不一致拒绝，防"拿 A 的批准执行 B"）。
+  - `ListPending(olderThan)` 给 B4 超时升级用。
+- 真实 PG 单测：pending→approved→executing→completed 全链路直通行；pending→executing 直跳被拒；hash 不匹配被拒；rejected 终态不可反悔。
+
+### 价值
+- 审批不再是应用层 if/else，DB CHECK + 事务行锁双保险；Agent 不可能"绕过批准直接执行"。
+
+---
+
 ## [v2.3.5] - 2026-10-25 (B1 PermissionGate PreToolUse)
 
 ### 新增

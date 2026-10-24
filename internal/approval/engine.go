@@ -77,6 +77,9 @@ type Ticket struct {
 	Events         []Event
 	Escalation     int // 0 无 / 1 已推送手表 / 2 已推送短信
 	EscalationNote string
+	// v2.3.6 B2：ActionHash 把审批与执行强绑定，防"拿 A 的批准执行 B"。
+	// BeginExecutingWithHash 校验调用方传入的 hash 必须与创建时一致。
+	ActionHash string
 }
 
 // transitions 合法状态迁移表。
@@ -203,6 +206,9 @@ func (e *Engine) CreateTicket(userID uint64, sourceAgentID string, ticketType Ti
 		Deadline:      deadline,
 		CreatedAt:     e.now(),
 	}
+	if h, ok := payload["__action_hash__"].(string); ok && h != "" {
+		t.ActionHash = h
+	}
 	t.Events = append(t.Events, Event{At: t.CreatedAt, Type: EventCreated, By: "agent", Note: sourceAgentID})
 	if err := e.store.Save(t); err != nil {
 		return nil, err
@@ -262,6 +268,23 @@ func (e *Engine) Modify(id string, patch map[string]any, by, note string) (*Tick
 // BeginExecuting APPROVED/MODIFIED → EXECUTING。
 func (e *Engine) BeginExecuting(id, by string) (*Ticket, error) {
 	return e.Transition(id, StateExecuting, by, "agent begins execution")
+}
+
+// ErrActionHashMismatch v2.3.6 B2：执行时 action_hash 与审批时不一致（防审批洗白）。
+var ErrActionHashMismatch = errors.New("approval: action hash mismatch (approval laundering)")
+
+// BeginExecutingWithHash 进入 EXECUTING 前强校验 actionHash 与创建时一致。
+// 只有 ticket 创建时声明了 ActionHash 才校验；未声明（老票据）按原逻辑放行。
+func (e *Engine) BeginExecutingWithHash(id, by, actionHash string) (*Ticket, error) {
+	t, err := e.load(id)
+	if err != nil {
+		return nil, err
+	}
+	if t.ActionHash != "" && t.ActionHash != actionHash {
+		return nil, fmt.Errorf("%w: ticket=%s approved=%s executed=%s",
+			ErrActionHashMismatch, id, t.ActionHash, actionHash)
+	}
+	return e.Transition(id, StateExecuting, by, "agent begins execution (hash-checked)")
 }
 
 // Complete EXECUTING → COMPLETED。
