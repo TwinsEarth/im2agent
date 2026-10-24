@@ -12,6 +12,7 @@ import (
 	"human-agent-im/internal/botroute"
 	"human-agent-im/internal/broadcast"
 	"human-agent-im/internal/gray"
+	"human-agent-im/internal/inqueue"
 	"human-agent-im/internal/metrics"
 	"human-agent-im/internal/model"
 	"human-agent-im/internal/openclaw"
@@ -437,6 +438,20 @@ func main() {
 		mux.Handle("/v2/wechat/mcp", api.NewMCPHandler(relaySvc))
 		// v2.2.1 标准 REST webhook（openclaw / 渠道确定性 POST），与 MCP 共用 relay 中枢。
 		mux.Handle("/v1/wechat/webhook", api.NewWechatWebhookHandler(relaySvc, deps.DB))
+
+		// v2.3.1 A1：WEBHOOK_ASYNC=on 时启动入站队列 worker（PG OUTBOX，崩溃不丢）。
+		if os.Getenv("WEBHOOK_ASYNC") == "on" && deps.DB != nil {
+			worker := inqueue.NewWorker(deps.DB, func(ctx context.Context, ev inqueue.Event) error {
+				if ev.NegoSessionID != "" {
+					_, err := relaySvc.NegoReply(ctx, ev.NegoSessionID, ev.FromWxid, ev.NegoIntent, ev.Text)
+					return err
+				}
+				_, err := relaySvc.Relay(ctx, ev.Account, ev.FromWxid, ev.Text, "inq_"+ev.Account+"_"+ev.FromWxid+"_"+ev.Text)
+				return err
+			})
+			go worker.Start(context.Background())
+			log.Println("[inqueue] worker started (WEBHOOK_ASYNC=on)")
+		}
 		mux.HandleFunc("/v1/chat/stream", api.ChatStreamHandler)
 		// v2.0.8 双 Agent 自动协商：双方 Agent 经 A2A 状态机多轮对谈，每轮真实推送给对方微信。
 		mux.Handle("/v1/wechat/auto-nego", api.NewWechatAutoNegoHandler(relaySvc))

@@ -7,6 +7,19 @@
 ---
 
 
+## [v2.3.1] - 2026-10-25 (A1 webhook 异步入队)
+
+### 新增
+- PG 表 `inbound_events`（032 迁移）：idem_key 唯一、status queued/processing/done/error。
+- `internal/inqueue`：Enqueue（幂等 ON CONFLICT DO NOTHING）+ Worker（`FOR UPDATE SKIP LOCKED` 抢占，500ms 轮询，单事件 30s 超时，失败落 error 不丢）。
+- webhook 开关 `WEBHOOK_ASYNC=on`：写库后立即返回 `{ok,queued,dup}`，不再同步等 LLM；后台 worker 真正调 relay/NegoReply。默认 off，回退 v2.3.0 同步路径。
+- main.go 启动 worker goroutine（开关 on 时）。
+
+### 价值
+- openclaw 回调不再被 30s LLM 同步阻塞；P99 ACK 降到 <1s；进程崩溃后 queued 事件重启自动重投，消息不丢。
+
+---
+
 ## [v2.3.0] - 2026-10-25 (L4 编排层 Phase A 骨架)
 
 ### 新增

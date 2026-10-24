@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"human-agent-im/internal/inqueue"
 	"human-agent-im/internal/relay"
 )
 
@@ -135,6 +136,28 @@ func NewWechatWebhookHandler(relaySvc *relay.Service, db *sql.DB) http.Handler {
 		if idem == "" {
 			idem = "wh_" + req.Account + "_" + req.FromWxid + "_" + req.Text
 		}
+
+		// v2.3.1 A1：WEBHOOK_ASYNC=on 时只入队立即 ACK，由后台 worker 调 relay，
+		// 避免 openclaw 同步等 30s 触发回调超时；崩溃后 queued 事件自动重投不丢。
+		if os.Getenv("WEBHOOK_ASYNC") == "on" {
+			var negoSession, negoIntent string
+			if req.NegoSessionID != "" {
+				negoSession, negoIntent = req.NegoSessionID, req.NegoIntent
+			}
+			_, dup, enqErr := inqueue.Enqueue(r.Context(), db, idem, req.Account, req.FromWxid, req.Text, negoSession, negoIntent)
+			if enqErr != nil {
+				writeWebhookError(w, http.StatusInternalServerError, "enqueue: "+enqErr.Error())
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"ok":       true,
+				"queued":   true,
+				"dup":      dup,
+				"identity": ident,
+			})
+			return
+		}
+
 		res, err := relaySvc.Relay(ctx, req.Account, req.FromWxid, req.Text, idem)
 		if err != nil {
 			writeWebhookError(w, http.StatusBadGateway, "relay: "+err.Error())
