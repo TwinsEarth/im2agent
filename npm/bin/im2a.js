@@ -9,7 +9,7 @@ const https = require('https');
 const { spawn } = require('child_process');
 const { execFileSync } = require('child_process');
 
-const PKG_VERSION = '1.8.8';
+const PKG_VERSION = '2.2.2';
 const REPO = 'TwinsEarth/im2agent';
 
 function platformAsset() {

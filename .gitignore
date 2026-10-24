@@ -2,7 +2,7 @@
 *.exe
 *.test
 *.out
-bin/
+/bin/
 dist/
 
 # Protobuf 生成代码（make proto 生成）

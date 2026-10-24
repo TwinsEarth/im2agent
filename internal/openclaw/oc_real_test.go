@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -12,13 +13,13 @@ import (
 	"human-agent-im/internal/wechatid"
 )
 
-func dsn() string {
-	return "postgres://hai:hai_dev@127.0.0.1:5432/hai_platform?sslmode=disable"
-}
-
 func TestOpenClawBindFlow(t *testing.T) {
+	dsn := os.Getenv("PG_DSN")
+	if dsn == "" {
+		t.Skip("PG_DSN not set")
+	}
 	suf := fmt.Sprintf("oc_%d", time.Now().UnixNano())
-	db, err := sql.Open("pgx", dsn())
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
