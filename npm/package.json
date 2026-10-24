@@ -1,6 +1,6 @@
 {
   "name": "@twinsearth/im2agent",
-  "version": "2.3.3",
+  "version": "2.3.4",
   "description": "IM2A gateway CLI launcher — human-agent hybrid IM (connect Agent networks, human keeps final approval).",
   "bin": {
     "im2a": "bin/im2a.js"

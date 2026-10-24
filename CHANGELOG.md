@@ -7,6 +7,17 @@
 ---
 
 
+## [v2.3.4] - 2026-10-25 (A3/A4 Commander 接 flash)
+
+### 新增
+- `internal/orchestration/flash_planner.go`：`FlashPlanner` 实现 `Planner` 接口，把用户消息+近期摘要拼成单轮 user message，system prompt 复用 commander 管家指令；温度 0、maxTokens 256。
+- 5 个单测：合法 JSON 拆出 schedule 子任务、低置信降 chat、坏 JSON 降 chat、provider 错误降 chat、recentSummary 注入、ctx 超时降 chat。
+
+### 价值
+- Commander 不再是 stub：生产路径注入 `internal/model.OpenAICompatible(deepseek-flash)` 后即可真实做意图分类；任何失败路径仍安全降级到 chat，不会比 v2.3.0 更糟。
+
+---
+
 ## [v2.3.3] - 2026-10-25 (A2 每用户 PG Agent 注册表)
 
 ### 新增
