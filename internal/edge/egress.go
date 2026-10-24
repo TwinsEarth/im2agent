@@ -18,8 +18,8 @@ const maxBody = 64 * 1024
 // audioMagic 已知容器/帧头。
 var audioMagic = [][]byte{
 	{'R', 'I', 'F', 'F'}, // RIFF....WAVE
-	{'I', 'D', '3'},       // mp3
-	{'O', 'g', 'g', 'S'},  // ogg
+	{'I', 'D', '3'},      // mp3
+	{'O', 'g', 'g', 'S'}, // ogg
 	{'f', 'L', 'a', 'C'}, // flac
 	{'f', 't', 'y', 'p'}, // mp4/m4a
 	{0xFF, 0xFB},         // mp3 frame sync
@@ -37,9 +37,9 @@ type EgressEntry struct {
 }
 
 type EgressGuard struct {
-	mu       sync.Mutex
-	hosts    map[string]bool // 允许出端的 host（不含 scheme）
-	entries  []EgressEntry
+	mu      sync.Mutex
+	hosts   map[string]bool // 允许出端的 host（不含 scheme）
+	entries []EgressEntry
 }
 
 // NewEgressGuard 指定允许出端的 host（端侧只允许回到自家后端）。

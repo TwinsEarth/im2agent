@@ -78,7 +78,6 @@ func (d *Deps) RelationMux(serviceName string) http.Handler {
 		writeJSON(w, 200, map[string]any{"ownerId": ownerID, "relations": list, "count": len(list)})
 	})
 
-
 	// v1.4.1: 删除/撤销信任关系
 	mux.HandleFunc("DELETE /v1/trust/relation", func(w http.ResponseWriter, r *http.Request) {
 		ownerID := r.URL.Query().Get("ownerId")
@@ -167,10 +166,10 @@ func (d *Deps) RelationMux(serviceName string) http.Handler {
 	// v1.4.1: Agent 注册能力（信任档位 + skill 白名单 + 金额审批阈值）
 	mux.HandleFunc("POST /v1/agents/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			AgentID       string   `json:"agentId"`
-			TrustLevelMin int      `json:"trustLevelMin"`
-			AllowedSkills []string `json:"allowedSkills"`
-			RequiresApprovalAboveCents int64 `json:"requiresApprovalAboveCents"`
+			AgentID                    string   `json:"agentId"`
+			TrustLevelMin              int      `json:"trustLevelMin"`
+			AllowedSkills              []string `json:"allowedSkills"`
+			RequiresApprovalAboveCents int64    `json:"requiresApprovalAboveCents"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
 		if req.AgentID == "" {
@@ -182,8 +181,8 @@ func (d *Deps) RelationMux(serviceName string) http.Handler {
 			d.agentCaps = map[string]agentCap{}
 		}
 		d.agentCaps[req.AgentID] = agentCap{
-			TrustMin: req.TrustLevelMin,
-			Skills:   req.AllowedSkills,
+			TrustMin:      req.TrustLevelMin,
+			Skills:        req.AllowedSkills,
 			ApprovalAbove: req.RequiresApprovalAboveCents,
 		}
 		writeJSON(w, 200, map[string]any{"agentId": req.AgentID, "registered": true})

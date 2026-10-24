@@ -18,16 +18,10 @@ func TestV176_AdminDashboardStats(t *testing.T) {
 	mid := "11111111-0000-0000-0000-000000000176"
 	trace := "v176_" + suf
 
-	// WORM 审计表：必须临时关触发器才能 DELETE 本测试行（非 superuser 环境跳过，避免污染）。
-	if _, err := d.DB.Exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`); err != nil {
-		t.Skipf("need superuser to temp-disable audit triggers: %v", err)
-	}
+	// audit_events append-only：审计行保留不删，model_calls 用 before/after 相对增量断言（见下）。
 	cleanup := func() {
 		d.DB.Exec(`DELETE FROM im_messages WHERE msg_key=$1`, mk)
 		d.DB.Exec(`DELETE FROM paid_message_ledger WHERE message_id=$1`, mid)
-		d.DB.Exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`)
-		d.DB.Exec(`DELETE FROM audit_events WHERE trace_id=$1`, trace)
-		d.DB.Exec(`ALTER TABLE audit_events ENABLE TRIGGER USER`)
 	}
 	cleanup()
 	t.Cleanup(cleanup)

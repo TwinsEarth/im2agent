@@ -2,7 +2,8 @@
 // 核心：所有 Agent 外发内容（含协商摘要）统一过审，结果与消息 ID 绑定写入审计。
 // 规则实现见 internal/compliance（服务与编排器共用，避免逻辑分叉）。
 // 运行：go run ./services/compliance-gate -selftest
-//       go run ./services/compliance-gate -port 8086
+//
+//	go run ./services/compliance-gate -port 8086
 package main
 
 import (

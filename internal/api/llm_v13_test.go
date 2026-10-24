@@ -12,6 +12,7 @@ import (
 
 // mockCloud 固定返回 JSON，模拟 Cloud LLM。
 type mockCloud struct{ content string }
+
 func (m *mockCloud) Chat(_ context.Context, _ *model.ChatRequest) (*model.ChatResponse, error) {
 	return &model.ChatResponse{Content: m.content, Model: "mock", RoutedTo: "cloud"}, nil
 }

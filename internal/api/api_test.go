@@ -56,7 +56,7 @@ func TestRelationGrantAndGate(t *testing.T) {
 	// 注册家庭 Agent
 	code, _ := doJSON(t, h, "POST", "/v1/agents/capabilities", map[string]any{
 		"agentId": "family-agent", "trustLevelMin": 1,
-		"allowedSkills": []string{"home-maintenance", "family-purchase"},
+		"allowedSkills":              []string{"home-maintenance", "family-purchase"},
 		"requiresApprovalAboveCents": 200000,
 	})
 	if code != http.StatusOK {

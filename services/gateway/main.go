@@ -5,6 +5,8 @@
 package main
 
 import (
+	"human-agent-im/internal/metrics"
+	"human-agent-im/internal/gray"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -12,13 +14,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"human-agent-im/internal/push"
 	"human-agent-im/internal/api"
 	"human-agent-im/internal/auth"
+	"human-agent-im/internal/masking"
+	"human-agent-im/internal/privacy"
+	"human-agent-im/internal/push"
 	"human-agent-im/internal/ratelimit"
+	"human-agent-im/internal/security"
 	"human-agent-im/internal/version"
 )
 
@@ -38,11 +46,12 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-
-	// 健康检查（不经过认证/限流）
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	// v1.9.9：/metrics 与 /healthz 均要求 admin token 鉴权（IM2A_ADMIN_TOKEN）
+	adminProbeToken := os.Getenv("IM2A_ADMIN_TOKEN")
+	mux.Handle("/metrics", auth.RequireToken(metrics.Handler(), adminProbeToken)) // Prometheus 抓取端点
+	mux.Handle("/healthz", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api.HealthHandler("gateway")(w, r)
-	})
+	}), adminProbeToken))
 
 	// 根路径：欢迎页（不经过认证/限流），方便用户直接打开 IP 验证
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -57,15 +66,39 @@ func main() {
 			"version": version.Version,
 			"commit":  version.GitCommit,
 			"docs":    "/healthz, /v1/events, /v1/trust/, /v1/approvals/, /v1/negotiations/, /v1/paid/, /v1/compliance/, /v1/msg/, /v1/memory/, /v1/distill/, /v1/model/",
-			"token":   "Authorization: Bearer im2a_demo_token",
+			"auth":    "Bearer token required",
 		})
 	})
 
 	// 中间件链：认证 → 限流
 	token := os.Getenv("GATEWAY_TOKEN")
+	auditor := security.New(deps.DB)
+	corsAllowed := []string{"https://geefish.cn", "https://www.geefish.cn"}
+	if v := os.Getenv("CORS_ALLOWED"); v != "" {
+		corsAllowed = strings.Split(v, ",")
+	}
+	// v1.9.0/v1.9.1：JWT 身份（wrap 统一认证需先取密钥）
+	jwtSecret := os.Getenv("IM2A_JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "im2a-dev-jwt-secret-CHANGE-ME"
+		log.Println("WARN: IM2A_JWT_SECRET not set; using insecure dev secret")
+	}
+	// v1.9.7：限流阈值可经环境变量配置（默认 100 rps / burst 200，GA 压测可调大）
+	limitRPS, limitBurst := 100, 200
+	if v := os.Getenv("RATE_LIMIT_RPS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil { limitRPS = n }
+	}
+	if v := os.Getenv("RATE_LIMIT_BURST"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil { limitBurst = n }
+	}
+	// 中间件链（外→内）：CORS 白名单 → 安全审计落库 → 限流 → 认证 → 安全响应头 → 业务
 	wrap := func(h http.Handler) http.Handler {
-		h = auth.RequireToken(h, token)
-		h = ratelimit.IPLimit(h, 100, 200) // 100 rps, burst 200
+		h = auth.Authenticate(h, token, jwtSecret)
+		h = ratelimit.IPLimit(h, limitRPS, limitBurst)
+		h = auditor.Audit(h)               // 捕获 401/403/429 与正常请求，落 security_events
+		h = security.CORS(corsAllowed, h)  // 预检在认证前；非白名单来源拒绝
+		h = security.Headers(h)            // 所有响应（含 401/429）均带安全头
+		h = security.MaxBody(2<<20, h)     // 统一 2MiB 请求体上限，缓解内存放大 DoS
 		return h
 	}
 
@@ -88,13 +121,37 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]any{"events": events, "count": len(events)})
 	})))
 
+	// v1.9.0：JWT 登录/me 路由（jwtSecret 已在 wrap 前定义）
+	const accessTTL = 72 * time.Hour
+	// login 公开（IP 限流防爆破），按 identifier 落库并签发 JWT
+	mux.Handle("POST /v1/auth/login",
+		security.MaxBody(2<<20,
+			security.Headers(
+				security.CORS(corsAllowed,
+					ratelimit.IPLimit(http.HandlerFunc(deps.AuthLogin(jwtSecret, accessTTL)), 20, 100)))))
+	// me 只认 JWT（RequireIdentity 把 sub 注入 user_id）
+	mux.Handle("GET /v1/auth/me",
+		security.Headers(
+			security.CORS(corsAllowed,
+				ratelimit.IPLimit(
+					auth.RequireIdentity(http.HandlerFunc(deps.AuthMe), jwtSecret), 60, 200))))
+
 	// 各服务路由（按前缀分发，经过中间件）
 	mux.Handle("/v1/trust/", wrap(deps.RelationMux("relation-svc")))
 	mux.Handle("/v1/agents/", wrap(deps.RelationMux("relation-svc")))
+	mux.Handle("POST /v1/memory/encrypted", wrap(http.HandlerFunc(deps.PutEncryptedContext)))
+	mux.Handle("GET /v1/memory/encrypted", wrap(http.HandlerFunc(deps.GetEncryptedContext)))
+	mux.Handle("GET /v1/memory/encrypted/export", wrap(http.HandlerFunc(deps.ExportEncryptedContext)))
+	mux.Handle("POST /v1/memory/encrypted/import", wrap(http.HandlerFunc(deps.ImportEncryptedContext)))
+
+
 	mux.Handle("/v1/approvals", wrap(deps.ApprovalMux("approval-engine")))
 	mux.Handle("/v1/approvals/", wrap(deps.ApprovalMux("approval-engine")))
 	mux.Handle("/v1/negotiations", wrap(deps.NegotiationMux("negotiation-svc")))
 	mux.Handle("/v1/negotiations/", wrap(deps.NegotiationMux("negotiation-svc")))
+	mux.Handle("/v1/a2a/", wrap(deps.A2AMux()))
+	mux.Handle("/v1/directory/", wrap(deps.DirectoryMux()))
+	mux.Handle("/v1/exp/", wrap(deps.ExperienceMux()))
 	mux.Handle("/v1/paid/", wrap(deps.PaymentMux("payment-svc")))
 	mux.Handle("/v1/paidflow/", wrap(deps.PaidFlowMux("paid-flow-svc")))
 	mux.Handle("/v1/compliance/", wrap(deps.ComplianceMux("compliance-gate")))
@@ -148,11 +205,99 @@ func main() {
 	mux.Handle("GET /v1/admin/metrics", wrap(http.HandlerFunc(deps.AdminMetrics)))
 	mux.Handle("GET /v1/admin/audit", wrap(http.HandlerFunc(deps.AdminAudit)))
 	mux.Handle("GET /v1/admin/health", wrap(http.HandlerFunc(deps.AdminHealth)))
+	// v1.9.8 灰度门控评估：GET /v1/gray/eval?feature=f&percent=p&entity=e
+	mux.Handle("GET /v1/gray/eval", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		feature := q.Get("feature")
+		entity := q.Get("entity")
+		pct, _ := strconv.Atoi(q.Get("percent"))
+		if feature == "" || entity == "" {
+			http.Error(w, "feature/entity required", http.StatusBadRequest)
+			return
+		}
+		hit := gray.Gate{Feature: feature, Percent: pct}.Enabled(entity)
+		writeJSON(w, http.StatusOK, map[string]any{"feature": feature, "entity": entity, "percent": pct, "enabled": hit})
+	})))
 	// v1.7.6：运营后台总入口——仪表盘真实聚合（独立管理员 Token，缺省回退网关 Token）+ 页面
 	adminToken := os.Getenv("IM2A_ADMIN_TOKEN")
-	if adminToken == "" { adminToken = token }
+	if adminToken == "" {
+		adminToken = token
+	}
 	adminH := auth.RequireToken(http.HandlerFunc(deps.AdminMux().ServeHTTP), adminToken)
 	mux.Handle("/v1/admin/", adminH)
+	mux.Handle("GET /v1/admin/security", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deps.DB == nil {
+			http.Error(w, "db not configured", http.StatusServiceUnavailable)
+			return
+		}
+		list, err := auditor.List(r.Context(), r.URL.Query().Get("type"), 200)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{"events": list})
+	}), adminToken))
+	mux.Handle("GET /v1/egress/tickets", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deps.DB == nil {
+			http.Error(w, "db not configured", http.StatusServiceUnavailable)
+			return
+		}
+		role := r.URL.Query().Get("role")
+		if role == "" {
+			role = masking.RoleOther // 缺省最小暴露
+		}
+		mk := masking.New(role)
+		out, n, err := mk.EgressTickets(r.Context(), deps.DB, "gateway:"+mk.Role, "egress_tickets")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{"role": mk.Role, "fields_masked": n, "tickets": out})
+	}), adminToken))
+	// v1.8.6 数据主体权利（个保法 §44-47）：导出 / 删除 / 查询，管理员 token 保护。
+	privacyH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deps.DB == nil {
+			http.Error(w, "db not configured", http.StatusServiceUnavailable)
+			return
+		}
+		uid, err := strconv.ParseInt(r.URL.Query().Get("user_id"), 10, 64)
+		if err != nil || uid <= 0 {
+			http.Error(w, "user_id required", http.StatusBadRequest)
+			return
+		}
+		pv := privacy.New(deps.DB)
+		reason := r.URL.Query().Get("reason")
+		switch {
+		case r.URL.Path == "/v1/privacy/export" && r.Method == http.MethodPost:
+			data, id, err := pv.Export(r.Context(), uid, reason)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"request_id": id, "data": data})
+		case r.URL.Path == "/v1/privacy/delete" && r.Method == http.MethodPost:
+			report, id, err := pv.Erase(r.Context(), uid, reason)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"request_id": id, "report": report})
+		case r.URL.Path == "/v1/privacy/requests" && r.Method == http.MethodGet:
+			reqs, err := pv.List(r.Context(), uid, 100)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"requests": reqs, "count": len(reqs)})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	})
+	mux.Handle("POST /v1/privacy/export", auth.RequireToken(privacyH, adminToken))
+	mux.Handle("POST /v1/privacy/delete", auth.RequireToken(privacyH, adminToken))
+	mux.Handle("GET /v1/privacy/requests", auth.RequireToken(privacyH, adminToken))
 	mux.Handle("/admin/", deps.AdminPage())
 	mux.Handle("POST /v1/edge/pipeline", wrap(http.HandlerFunc(deps.EdgePipeline)))
 	mux.Handle("GET /v1/edge/egress/report", wrap(http.HandlerFunc(deps.EgressReport)))
@@ -174,7 +319,7 @@ func main() {
 
 	addr := ":" + itoa(*port)
 	log.Printf("gateway listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, metrics.Middleware(mux))) // v1.9.9 全请求计数
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -203,6 +348,8 @@ func runSelfTest() {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", api.HealthHandler("gateway"))
+	// v1.9.9 Prometheus 指标端点（供抓取，不鉴权）
+	mux.Handle("/metrics", metrics.Handler())
 	mux.Handle("/v1/trust/", deps.RelationMux("relation-svc"))
 	mux.Handle("/v1/msg/", api.NewMsgMux("msg-svc"))
 

@@ -9,29 +9,29 @@ import (
 
 // GateRequest 门控请求。
 type GateRequest struct {
-	UserID      string   `json:"userId"`
-	TargetID    string   `json:"targetId"`
-	Tool        string   `json:"tool"`        // 要调用的工具名
-	Capability  string   `json:"capability"`  // 需要的权限
-	AmountCents int64    `json:"amountCents"` // 涉及金额（分）
+	UserID      string `json:"userId"`
+	TargetID    string `json:"targetId"`
+	Tool        string `json:"tool"`        // 要调用的工具名
+	Capability  string `json:"capability"`  // 需要的权限
+	AmountCents int64  `json:"amountCents"` // 涉及金额（分）
 }
 
 // GateResponse 门控响应。
 type GateResponse struct {
-	Allowed  bool   `json:"allowed"`
-	Reason   string `json:"reason,omitempty"`
-	Level    int    `json:"trustLevel"`
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason,omitempty"`
+	Level   int    `json:"trustLevel"`
 }
 
 // toolTrustMap 工具→所需信任档位映射（代码层硬编码，非提示词）。
 var toolTrustMap = map[string]int{
-	"calendar.read":    2, // L2 信任以上可读日程
-	"calendar.write":    1, // L1 家庭以上可写
-	"msg.send":         2, // L2 以上可发消息
-	"msg.read":          3, // L3 以上可读消息
-	"payment.charge":   1, // L1 以上可扣费
-	"contact.read":     3, // L3 以上可读联系人
-	"contact.add":       2, // L2 以上可加联系人
+	"calendar.read":  2, // L2 信任以上可读日程
+	"calendar.write": 1, // L1 家庭以上可写
+	"msg.send":       2, // L2 以上可发消息
+	"msg.read":       3, // L3 以上可读消息
+	"payment.charge": 1, // L1 以上可扣费
+	"contact.read":   3, // L3 以上可读联系人
+	"contact.add":    2, // L2 以上可加联系人
 }
 
 func (d *Deps) gateCheck(w http.ResponseWriter, r *http.Request) {
@@ -64,9 +64,14 @@ func (d *Deps) gateCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func itoaCap(n int) string {
-	if n == 0 { return "0" }
+	if n == 0 {
+		return "0"
+	}
 	digits := []byte{}
-	for n > 0 { digits = append([]byte{byte(0 + n%10)}, digits...); n /= 10 }
+	for n > 0 {
+		digits = append([]byte{byte(0 + n%10)}, digits...)
+		n /= 10
+	}
 	return string(digits)
 }
 

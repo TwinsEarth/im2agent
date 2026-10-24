@@ -52,13 +52,12 @@ func (d *Deps) adminStats(w http.ResponseWriter, r *http.Request) {
 	stats["push_pending"] = d.countQ(ctx, `SELECT count(*) FROM im_push_tasks WHERE status='pending'`)
 
 	// 客服工单
-	stats["tickets"] = d.countQ(ctx, `SELECT count(*) FROM ticket_state`)
+	stats["tickets"] = d.countQ(ctx, `SELECT count(*) FROM support_tickets`)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"service": "IM2A Admin", "status": "ok", "stats": stats,
 	})
 }
-
 
 // v1.7.7：调用量 / 消息 / 付费 / 审批 按天时间序列（默认近 7 天，最多 30）。
 func (d *Deps) adminTimeseries(w http.ResponseWriter, r *http.Request) {
@@ -173,13 +172,13 @@ func (d *Deps) adminAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type row struct {
-		AgentID            string `json:"agent_id"`
-		OwnerID            int64  `json:"owner_id"`
-		Kind               string `json:"kind"`
-		TrustLevelMin      int    `json:"trust_level_min"`
-		BudgetCentsPerDay  int64  `json:"budget_cents_per_day"`
-		Enabled            bool   `json:"enabled"`
-		UpdatedAt          string `json:"updated_at"`
+		AgentID           string `json:"agent_id"`
+		OwnerID           int64  `json:"owner_id"`
+		Kind              string `json:"kind"`
+		TrustLevelMin     int    `json:"trust_level_min"`
+		BudgetCentsPerDay int64  `json:"budget_cents_per_day"`
+		Enabled           bool   `json:"enabled"`
+		UpdatedAt         string `json:"updated_at"`
 	}
 	list := []row{}
 	for rows.Next() {
@@ -385,7 +384,7 @@ function jpost(path,body){
  var tok=document.getElementById("tok").value.trim();
  return fetch(path,{method:"POST",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.json();});
 }
-function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
 function setFilter(f){tFilter=f;
  var btns=document.querySelectorAll("#ticketfilter,.tbtn");
  Array.prototype.forEach.call(document.querySelectorAll('[data-f]'),function(b){b.className="tbtn"+(Number(b.getAttribute("data-f"))===f?" on":"");});

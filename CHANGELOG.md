@@ -1,0 +1,175 @@
+# Changelog
+
+本项目所有重要变更记录于此。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
+
+五方发布口径：**GitHub Release（多平台二进制 + 校验和）· npm（`@twinsearth/im2agent`）· CI（build/vet/race 测试/服务自测）· Compat（契约 + 跨平台兼容矩阵）· Release workflow（打 tag 全自动）**。
+
+---
+
+## [v1.9.9] - 2026-10-24 (Beta)
+
+### v1.9.0–v1.9.5 身份与数据主权
+- **v1.9.0** JWT 身份地基：stdlib HMAC-SHA256 签发/校验、强制 HS256、恒定时间比较、登录 upsert、/me。
+- **v1.9.1** 多用户隔离收紧：Authenticate 统一中间件，横向越权读他人资源一律 403。
+- **v1.9.2** Context 端到端信封加密：AES-256-GCM、随机 nonce、GCM 认证、错 key 拒绝、明文不出端。
+- **v1.9.3** Context 可移植导出/导入加密包（密文快照迁移语义）。
+- **v1.9.4** 应用层真实余弦向量检索（256 维 bigram 哈希 + L2 归一化），替换 ILIKE。
+- **v1.9.5** 私有化离线全栈：多阶段 Dockerfile（33.8MB）、全栈 compose、GA 手册。
+
+### v1.9.6–v1.9.9 GA 上线
+- **v1.9.7** 全链路压测：1000 并发 ×5000 真实写 PG，QPS 3911、p99 690ms、零失败；100 并发协商会话全 201；限流阈值 env 可配置（RATE_LIMIT_RPS/BURST）。
+- **v1.9.8** 灰度发布门控：internal/gray FNV 一致性分桶，按 user/Agent 百分比放量；GET /v1/gray/eval；10000 实体分布实测。
+- **v1.9.9** Prometheus 监控：internal/metrics 真实计数 + /metrics 文本端点 + 请求延迟 summary；/metrics 与 /healthz 加 admin token 鉴权；监控告警手册。
+
+### 安全
+- /metrics、/healthz、/v1/admin/*、/v1/privacy/* 统一 admin token 鉴权。
+- 修复 real_test cleanup 顺序导致的测试残留（t.Cleanup LIFO 先删后关）。
+
+---
+
+## [v1.8.8] - 2026-10-24
+
+### 门禁 `-race` 实测缺陷修复（全新缓存稳定通过）
+- **迁移并发死锁（`internal/store/migrate.go`）**：跨包测试 / 多实例同时 `Migrate` 对 001–015 DDL 并发执行，在 PG 表锁与系统目录上死锁（SQLSTATE 40P01）。改为单连接 `pg_advisory_lock('IM2A')` 串行执行全部迁移，defer 解锁（conn.Close 兜底）；非 PG 后端拿锁失败回退直跑。
+- **推送重试越权 + 失败误标 sent（`internal/push/push.go`、`internal/api/push.go`）**：`/v1/push/retry?user_id=X` 原实现全量调度全表用户（越权），且腾讯云返回 500 时任务仍被错误置为 sent。改为单事务 `SELECT ... FOR UPDATE SKIP LOCKED` 按用户/全量抢占，凭据查询 / HTTP / 状态回写同事务，失败仅累加 attempts 保持 pending；新增 `DispatchUserPending`（空 userID 报错），多实例并发安全。
+- **Postgres 存储测试长期误 skip（`internal/store/store_test.go`）**：`TestPostgresSkipped` 因 `PG_DRIVER` 从未设置而永远空 driver 跳过（证明从未真跑）。修复默认 driver=pgx、按 identity 外键顺序先建用户再建信任档、`t.Cleanup` 级联清理并加前缀兜底（`ENC_PG_STORE_%`）。
+- **推送测试跨进程串扰（`internal/push/v173_real_test.go`、`internal/api/v174_real_test.go`）**：两个测试进程共享物理表 `im_push_tasks` 互相标记，用 `pg_advisory_lock('PUSH')` 串行化，互不污染。
+- **移除硬编码生产 admin token（`internal/security/pentest_real_test.go`）**：渗透测试不再固化管理凭据，admin token 仅经 `IM2A_ADMIN_TOKEN` 环境变量注入，未设置时 live 套件自动跳过；带 token 实跑 security_headers/authz/sql_injection/path_traversal/oversize_body/horizontal_isolation/stored_xss/rate_limit 共 8 项全 PASS。
+- **证据**：`go clean -testcache` 全新缓存后连续 2 轮 `make gate` 均 `GATE_EXIT=0`，0 FAIL / 0 race / 0 deadlock，27 包 ok、8 服务自测 PASS、全业务表零残留。
+
+### 安全 / 合规（全版本审查修复）
+- **修复不可变审计（WORM）被测试绕过的合规红线**：v1.7.6–v1.7.10 运营后台测试曾用 `ALTER TABLE ... DISABLE TRIGGER` 临时关闭 append-only 审计触发器再删数据。已彻底移除 5 处绕过，改用唯一 `trace_id`/`ref` 隔离数据，审计触发器在测试全程启用；同时保留「UPDATE/DELETE 真实审计行必须被拒绝」的断言。
+- **修复全量并行测试偶发 FAIL 根因**：上述 `DISABLE TRIGGER` 会全局切换触发器状态，正是 `privacy.TestV186ExportAndErase` 在并行运行时偶发失败的根因。修复后连续 3 轮全量 `go test ./...` 全部 ok、0 FAIL / 0 panic。
+- **测试零残留**：新增统一的 `internal/api/cleanup_helpers_test.go`，为早期 v1.0/v1.2–v1.8.0/渗透测试等约 20+ 个测试补全 `t.Cleanup`，干净库跑全量前后业务表行数完全一致。
+- **消除静默吞错**：`im.go`、`push.go` 等模块 5 处忽略错误改为显式记录。
+- **历史库清理**：一次性清理 22 张业务表残留、孤儿用户与工作记忆脏数据，恢复干净基线。
+
+### 工程化 / 发布
+- 版本 single-source 收口到 **v1.8.8**：`internal/version/version.go`、`Makefile`、`npm/package.json`、`npm/bin/im2a.js`、README 徽章。
+- 新增本 `CHANGELOG.md`，系统沉淀 v0.x–v1.8.8 演进。
+- 全仓库 `gofmt`（33 个文件）；非测试代码无 `TODO/FIXME/HACK`。
+- 五方发布：GitHub Release（6 平台二进制 + checksums）、npm 1.8.8、CI、Compat、Release workflow。
+
+### 验证证据（2026-10-24 实跑）
+- `go build ./...` / `go vet ./...`：通过；`gofmt -l`：0 遗漏。
+- `go test ./...`：37 包全 ok（含 `-race`），0 FAIL / 0 panic，连续 3 轮 ALL OK。
+- `make gate`：build / vet / race 测试 / 8 服务自测全 PASS。
+- `make compat`：9 proto 契约、版本与 healthz 一致、核心路由在场、6 平台矩阵可编译，ALL CHECKS PASS。
+- 生产网关 `/healthz`：`version=v1.8.8`。
+
+---
+
+## [v1.8.7] - 渗透测试与安全收口
+
+- 新增可运行的渗透测试套件（`internal/security/pentest_real_test.go`）：覆盖未认证访问、弱 Bearer、伪造管理 token、注入、越权、越权读他人数据、限流、安全响应头等 8 个攻击向量，对真实网关发起攻击。
+- 修复闭环：管理 token 独立于普通 token 并仅放行管理/出端/隐私路由；`/v1/egress/*` 强认证；越权访问返回 403 并写 `security_events`。
+- 输出《IM2A 安全测试报告》，区分已修复 / 已接受 / 环境资源闸门。
+
+## [v1.8.6] - 等保 / 个保对齐
+
+- 数据主体权利接口：访问（export）、更正（correct）、删除/被遗忘（erase）、导出副本、拒绝自动化处理。
+- `security_events` 与合规文档对齐；导出/擦除操作全程留痕，且不破坏 append-only 审计。
+
+## [v1.8.5] - 数据脱敏
+
+- 手机号、金额、地址在出端响应中按规则脱敏；审计与账本保留原值（脱敏可证明、可追溯）。
+- 真实落库断言：出端脱敏、审计原值、按用户隔离。
+
+## [v1.8.4] - STRIDE 威胁建模与修复
+
+- 完成 STRIDE 威胁建模（仿冒/篡改/抵赖/信息泄露/拒绝服务/越权）。
+- 修复：强认证、IP 级限流、安全响应头、注入防护、IDOR 越权拦截、审计不可抵赖。
+
+## [v1.8.3] - 安全合规基线
+
+- 安全中间件（认证、限流、响应头、安全事件）。
+- 安全事件落库 `security_events`；建立威胁模型框架与检查清单。
+
+## [v1.8.2] - 双层经验库（Propose-Commit-Audit）
+
+- 经验库双层：逐案例诊断层 + 蒸馏后的全局模式层。
+- 责任分离：案例层写入源**仅限人类审批决策**（模型不得自写）；模式层须**人类批准**才生效；最终审计裁决权归人类/确定性规则，不交给 Summary Auditor 模型。
+- 真实落库断言：Agent 自主写入被拒、未批准模式不生效、审批反馈方可入库。
+
+## [v1.8.1] - Agent 通讯录一等公民
+
+- Agent 拥有对外别名（邮箱/电话）、Attention Level、tags、受限月预算钱包，在沙箱内代表用户对外。
+- 信任对象为「Agent 背后的人」，Agent 继承信任档位而非独立积累。
+- 借鉴 IMClaw 的 Trust/tags/Attention 产品化设计，并将付费对象修正为「付费触达个人（经 Agent 预审）」。
+
+## [v1.8.0] - A2A Agent 协商通道
+
+- 统一信封 E2A/E2AGateway，归一化多 IM 渠道（借鉴 dsh-meeting / JiuwenSwarm）。
+- Agent 间协商：`msg_id` 幂等、轮询收件箱、deliver 回执；协商流与人类 IM 物理分离。
+- 采用 SLIM 思路：协商与 Skill Runtime 统一传输，A2A/MCP 复用 HTTP/2 加密传输，不自建传输层。
+
+> 同期落地：**真实 APNS 推送通道**（.p8 JWT，官方 apns2 库，待 Apple 凭据真机投递）。
+
+---
+
+## [v1.7.x] - 运营后台与公网 HTTPS
+
+- **v1.7.0**：Webhook 公网 HTTPS 投递，`deploy/https-setup.sh` 自动签发 Let's Encrypt 证书并放行 443。
+- **v1.7.1–v1.7.2**：管理仪表盘（用户/Agent/付费/调用量实时面板，7 天趋势、付费流水、Agent 明细）。
+- **v1.7.3**：客服工单闭环（用户反馈 → 工单 → 处理），独立 admin token 与 `support_tickets` 顶卡。
+- **v1.7.4**：审计可视化（事件流时间线、按 trace 门控决策回放）。
+- **v1.7.5**：内容审核（规则落库自动扫描 + 人工审核队列 + 规则管理 + 后台 UI）。
+
+## [v1.6.x] - 工程化与五方发布
+
+- 腾讯云 IM 真实打通：官方 TLSSig v2 UserSig、account_import、跨账号 C2C、真实建群与群消息。
+- Webhook 回调接收（字段归一、?key 验签、SdkAppID 校验、幂等落库）。
+- 付费账本收口：v0.9 老表确定性迁移到 `paid_message_ledger`，老表归档。
+- 统一版本 single-source（`/healthz` 暴露 version + commit）、6 平台二进制、校验和、Compat 兼容矩阵、npm 跨平台启动器。
+- **v1.6.5 首次五方发布**：CI / Compat / Release workflow / GitHub Release / npm。
+
+## [v1.5.x] - 手表端与多端同步
+
+- 手表一键审批、通知、一键通过/驳回、紧急升级。
+- 离线审批缓存（断网可审批，联网同步）、多端状态同步（LWW 冲突裁决、离线重放、超时升级）。
+
+## [v1.4.x] - 端侧智能 + BLE
+
+- 端侧唤醒词、意图粗分类（小模型/规则可插拔）、敏感词前置过滤（不出端）。
+- BLE 网关协议（耳机/眼镜/指环接入）；「音频不出端」出端流量白名单审计报告。
+- Flutter 端真实接入 `flutter_blue_plus`（真机 BLE 通信依赖硬件环境）。
+
+## [v1.3.x] - Flutter 完整客户端
+
+- 审批态卡片流（通过/修改/驳回/超时升级）、巡视态（Agent 工作轨迹/协商时间线/审计事件流）、会话态（Agent 摘要层 IM + 人类消息分流）。
+- `api_client` 真实对接网关全部路由；Flutter Desktop 三栏窗口与多端同步。
+
+## [v1.2.x] - 腾讯云 IM 双通道物理隔离
+
+- v1.2.0：人类消息走腾讯云 IM、Agent 消息走自研协商流；v1.2.1：UserSig 签发；v1.2.2：Webhook 回调；v1.2.3：消息路由分流；v1.2.4：群聊（关系链/群成员/广播）。
+
+## [v1.1.x] - 实时通道
+
+- WebSocket 长连接：在线状态、心跳、多端连接管理、消息实时下发。
+
+## [v1.0.x] - 生产化层
+
+- 认证中间件、真实 PG 消息存储、全局限流、优雅退出、配置热加载。
+
+---
+
+## [v0.x] - MVP 到平台雏形
+
+- **v0.1–v0.2**：六张核心表、存储接口层（内存/PG 双实现）、MCP Skill Runtime、7 个核心服务、真实 Go 测试。
+- **v0.3–v0.5**：Demo 单二进制、网页运维界面、Linux 服务器二进制、局域网 docker-compose、大模型驱动、跨端客户端、公网生产部署、统一 API 网关 + 事件总线。
+- **v0.6**：Context 记忆基座（工作/情景/语义，子 Agent 隔离）、TTL、导入导出、衰减、搜索、幂等、事件流、快照回滚。
+- **v0.7**：蒸馏闭环（审批反馈 → Improvement Memory → 阈值自适应，不改基座模型）。
+- **v0.8**：L5 模型抽象层（Provider 接口、云端真实调用、智能路由、审计、fallback 链、配额、9 意图域、热切换）。
+- **v0.9**：陌生人付费注意力经济（发送即扣费 / 回复才扣费、自主定价、退款、收件箱、黑名单、过期、对账导出、偏好）。
+
+---
+
+## 架构落地说明（与早期设计基线的差异）
+
+- 早期设计基线中的 **gRPC / Kafka / pgvector** 未引入；实际协商通道走 **A2A over HTTP**，审计/事件走**事件流 + 落库**，检索优先用 PostgreSQL 能力。OpenSearch 按部署环境（低内存服务器）默认关闭。
+- 核心不可妥协原则保持不变：① 付费在 Agent 预审之后；② 信任边界是代码层门控（非提示词自觉）；③ 「不上传原始音频」以出端流量白名单审计可验证。
+
+## 已知资源闸门（诚实标注，非功能缺失）
+
+- Flutter 客户端需在具备 Flutter SDK 的机器执行 `flutter create . && flutter analyze` 补齐平台目录后编译；真机 BLE 需耳机/眼镜/指环硬件。
+- 腾讯云 IM 主动 API live 测试、APNS 真机推送需对应凭据/证书与真机环境。

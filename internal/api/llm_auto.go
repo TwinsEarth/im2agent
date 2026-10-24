@@ -28,10 +28,10 @@ func (d *Deps) llmAutoRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type turnResult struct {
-		Round    int    `json:"round"`
-		Intent   string `json:"intent"`
-		Payload  string `json:"payload"`
-		State    string `json:"state"`
+		Round   int    `json:"round"`
+		Intent  string `json:"intent"`
+		Payload string `json:"payload"`
+		State   string `json:"state"`
 	}
 	history := []turnResult{}
 

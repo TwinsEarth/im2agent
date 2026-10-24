@@ -180,8 +180,8 @@ func (d *Deps) IMMux() http.Handler {
 	// v1.7.1: 关系档位查询 / 手动设档。
 	mux.HandleFunc("GET /v1/im/relations", d.listRelations)
 	mux.HandleFunc("POST /v1/im/relations", d.upsertRelation)
-	mux.HandleFunc("GET /v1/im/messages", d.listIMMessages)   // v1.7.5
-	mux.HandleFunc("GET /v1/im/unread", d.imUnreadCount)        // v1.7.5
+	mux.HandleFunc("GET /v1/im/messages", d.listIMMessages) // v1.7.5
+	mux.HandleFunc("GET /v1/im/unread", d.imUnreadCount)    // v1.7.5
 
 	// v1.2.0: 真实发送单聊（未配置腾讯云凭证返回 503，绝不假装成功）。
 	mux.HandleFunc("POST /v1/im/send", func(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +359,6 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-
 // applyRelationEvent v1.7.1：把关系链类回调归一为五档信任档位变更。
 // 加好友默认 L3 已知（接收留言摘要，对外回复需审批）；删好友降级 L4 陌生。
 func applyRelationEvent(db *sql.DB, ev im.WebhookEvent) {
@@ -466,7 +465,6 @@ func (d *Deps) upsertRelation(w http.ResponseWriter, r *http.Request) {
 		"level": req.Level, "levelName": trustzone.Level(req.Level).String(), "status": status})
 }
 
-
 // applyReadReceipt v1.7.2：C2C 已读回执真实落 im_read_receipts。
 func applyReadReceipt(db *sql.DB, ev im.WebhookEvent) {
 	if !containsAny(ev.CallbackType, "ReadReport", "ReadReceipt", "Readed", "MsgReaded", "C2C.Read") {
@@ -517,16 +515,17 @@ VALUES ($1,$2,'member') ON CONFLICT (group_id, user_id) DO NOTHING`, ev.GroupID,
 	}
 }
 
-
 // v1.7.5：普通 C2C 消息入站镜像为 recv（群消息/已读/关系事件不进此表）。
 func applyInboundMessage(db *sql.DB, ev im.WebhookEvent) {
 	if ev.GroupID != "" || ev.MsgKey == "" || ev.FromUserID == "" || ev.ToUserID == "" {
 		return
 	}
 	text := extractInboundText(ev.MsgBody)
-	_, _ = db.Exec(`INSERT INTO im_messages(msg_key,from_user,to_user,dir,text)
+	if _, err := db.Exec(`INSERT INTO im_messages(msg_key,from_user,to_user,dir,text)
 		VALUES($1,$2,$3,'recv',$4) ON CONFLICT (msg_key) DO NOTHING`,
-		ev.MsgKey, ev.FromUserID, ev.ToUserID, text)
+		ev.MsgKey, ev.FromUserID, ev.ToUserID, text); err != nil {
+		log.Printf("inbound mirror im_messages msg_key=%s: %v", ev.MsgKey, err)
+	}
 }
 
 // 从腾讯云 MsgBody 尽力提取文本（结构可能是 [{MsgContent:{Text:...}}]）。

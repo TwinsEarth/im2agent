@@ -22,9 +22,9 @@ import (
 // Orchestrator 编排器（含 Agent 元数据注册表与合规护栏）。
 type Orchestrator struct {
 	Deps
-	mu      sync.RWMutex
-	meta    map[string]AgentMeta
-	guard   *compliance.Guard
+	mu    sync.RWMutex
+	meta  map[string]AgentMeta
+	guard *compliance.Guard
 }
 
 // AgentMeta Agent 展示元数据（capability 落 PostgreSQL，元数据进程内）。
@@ -38,25 +38,25 @@ type AgentMeta struct {
 
 // RegisterAgentRequest 注册 Agent。
 type RegisterAgentRequest struct {
-	Meta AgentMeta           `json:"meta"`
+	Meta AgentMeta            `json:"meta"`
 	Cap  trustzone.Capability `json:"cap"`
 }
 
 // StrangerIntentRequest 陌生人来意（端到端入口）。
 type StrangerIntentRequest struct {
-	ReceiverID    uint64 `json:"receiverId"`
-	StrangerAgent string `json:"strangerAgentId"`
+	ReceiverID     uint64 `json:"receiverId"`
+	StrangerAgent  string `json:"strangerAgentId"`
 	IntentCategory string `json:"intentCategory"` // 商务合作/产品咨询/贷款推广/...
-	Content       string `json:"content"`
-	BillingMode   int    `json:"billingMode"` // 1 发送即扣费 / 2 回复才扣费
-	AmountCents   int64  `json:"amountCents"`
+	Content        string `json:"content"`
+	BillingMode    int    `json:"billingMode"` // 1 发送即扣费 / 2 回复才扣费
+	AmountCents    int64  `json:"amountCents"`
 }
 
 // DecideIntentRequest 本人对陌生来意卡片决策。
 type DecideIntentRequest struct {
-	By     string `json:"by"`
+	By       string `json:"by"`
 	Decision string `json:"decision"` // approve / reject / reply
-	Note   string `json:"note"`
+	Note     string `json:"note"`
 }
 
 // NewOrchestrator 构造编排器。
@@ -183,7 +183,7 @@ func (o *Orchestrator) Mux(serviceName string) http.Handler {
 		sess.Deadline = time.Now().Add(30 * time.Minute)
 		_, _ = sess.Apply(negotiation.Turn{
 			SessionID: negID, FromAgentID: req.StrangerAgent, ToAgentID: "stranger-filter-agent",
-			Intent: negotiation.IntentPropose,
+			Intent:  negotiation.IntentPropose,
 			Payload: map[string]any{"category": req.IntentCategory, "content": req.Content},
 		})
 		sess.State = negotiation.StateAuthRequired // 预审通过 → 需本人审批

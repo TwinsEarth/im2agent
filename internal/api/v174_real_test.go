@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,11 +15,34 @@ import (
 	"human-agent-im/internal/push"
 )
 
+// pushTestLockKey 是推送调度测试专用的会话级 advisory lock 常量（'PUSH' 四字节）。
+// 必须与 internal/push/v173_real_test.go 中的常量一致：跨包测试进程靠它串行化，
+// 避免全量调度扫描时碰到对方的 pending 任务。
+const pushTestLockKey int64 = 0x50555348
+
+func acquirePushTestLock(t *testing.T, db *sql.DB) {
+	t.Helper()
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("push lock conn: %v", err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", pushTestLockKey); err != nil {
+		_ = conn.Close()
+		t.Fatalf("acquire push advisory lock: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", pushTestLockKey)
+		_ = conn.Close()
+	})
+}
+
 // v1.7.4：推送管理 HTTP API 真实闭环——录凭据/入队/列表/手动重试触发真实出站。
 func TestV174_PushAdminAPI(t *testing.T) {
 	d := v12Deps(t)
+	acquirePushTestLock(t, d.DB)
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
 	uid := "v174_" + suf
+	t.Cleanup(func() { cleanPushByUser(t, d.DB, "v174_%") })
 
 	var calledPath, calledBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

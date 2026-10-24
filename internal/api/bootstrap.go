@@ -16,11 +16,11 @@ import (
 	"human-agent-im/internal/approval"
 	"human-agent-im/internal/distill"
 	"human-agent-im/internal/eventbus"
-	"human-agent-im/internal/stream"
 	"human-agent-im/internal/memory"
 	"human-agent-im/internal/model"
 	"human-agent-im/internal/skillruntime"
 	"human-agent-im/internal/store"
+	"human-agent-im/internal/stream"
 )
 
 // 付费消息单日发送上限（Phase 1 默认值）。

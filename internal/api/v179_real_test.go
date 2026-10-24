@@ -8,8 +8,8 @@ import (
 )
 
 // v1.7.9 审计可视化 + WORM 不可变审计。
-// audit_events 是 append-only（触发器禁止 UPDATE/DELETE），因此测试先断言不可变，
-// 再临时关闭触发器构造决策链，cleanup 中清干净并恢复触发器，绝不残留。
+// audit_events 是 append-only（触发器只禁 UPDATE/DELETE，INSERT 正常）；先断言不可变，
+// 再用唯一 trace_id 构造决策链，审计行保留不删（合规 append-only），查询按 trace 精确隔离。
 func TestV179_AuditTraceReplay(t *testing.T) {
 	d := v12Deps(t)
 	h := d.AdminMux()
@@ -26,15 +26,7 @@ func TestV179_AuditTraceReplay(t *testing.T) {
 		t.Fatal("audit_events must reject DELETE (append-only)")
 	}
 
-	// 1. 临时夹具：仅 superuser 可关触发器；非特权环境（如 CI）跳过写入部分。
-	if _, err := d.DB.Exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`); err != nil {
-		t.Skipf("need superuser to temp-disable audit triggers: %v", err)
-	}
-	t.Cleanup(func() {
-		d.DB.Exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`)
-		d.DB.Exec(`DELETE FROM audit_events WHERE trace_id LIKE 'v179%'`)
-		d.DB.Exec(`ALTER TABLE audit_events ENABLE TRIGGER USER`)
-	})
+	// 1. 决策链直接 INSERT（触发器不禁 INSERT）；行 append-only 保留，用唯一 trace_id 隔离。
 
 	ns := time.Now().UnixNano()
 	trace := "v179trace-" + strconv.FormatInt(ns, 10)

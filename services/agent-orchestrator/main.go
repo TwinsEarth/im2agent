@@ -1,7 +1,8 @@
 // agent-orchestrator：Agent 编排层服务（§3.3）——平台技术核心。
 // 演示总 Agent 路由、子 Agent 注册、权限门控、审批闭环、审计轨迹的完整链路。
 // 运行：go run ./services/agent-orchestrator -selftest
-//       go run ./services/agent-orchestrator -port 8080
+//
+//	go run ./services/agent-orchestrator -port 8080
 package main
 
 import (
@@ -20,12 +21,12 @@ import (
 
 // AgentInfo 注册表条目（Agent Registry，对应 §6 agent_capabilities）。
 type AgentInfo struct {
-	AgentID   string
-	Kind      string // master / sub
-	OwnerUID  uint64
-	Display   string
-	Desc      string
-	Cap       trustzone.Capability
+	AgentID  string
+	Kind     string // master / sub
+	OwnerUID uint64
+	Display  string
+	Desc     string
+	Cap      trustzone.Capability
 }
 
 // Registry 进程内 Agent 注册表（生产为 PostgreSQL + etcd）。

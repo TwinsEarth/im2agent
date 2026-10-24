@@ -1,5 +1,5 @@
 GO ?= go
-VERSION ?= v1.6.5
+VERSION ?= v1.8.8
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X human-agent-im/internal/version.Version=$(VERSION) -X human-agent-im/internal/version.GitCommit=$(COMMIT)
 SERVICES := msg-svc relation-svc approval-engine negotiation-svc payment-svc compliance-gate agent-orchestrator gateway
@@ -50,7 +50,7 @@ down: ## 停止基础依赖
 clean: ## 清理生成物
 	rm -rf proto/gen bin dist data logs
 
-# ---- 发布（v1.6.5 五方发布）----
+# ---- 发布（v1.8.8 五方发布）----
 .PHONY: release-build checksums compat
 
 release-build: ## 跨平台编译网关二进制（linux/darwin/windows × amd64/arm64）

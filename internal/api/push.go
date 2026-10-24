@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	//
 	//
 
@@ -21,10 +22,10 @@ func (d *Deps) PushMux() http.Handler {
 }
 
 type pushCredentialReq struct {
-	UserID       string `json:"user_id"`
-	Platform     string `json:"platform"`
-	CertRef      string `json:"cert_ref"`
-	DeviceToken  string `json:"device_token"`
+	UserID      string `json:"user_id"`
+	Platform    string `json:"platform"`
+	CertRef     string `json:"cert_ref"`
+	DeviceToken string `json:"device_token"`
 }
 
 // upsertPushCredential 真实落 im_push_credentials。
@@ -72,13 +73,22 @@ func (d *Deps) listPushCredential(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Deps) listPushTasks(w http.ResponseWriter, r *http.Request) {
-	uid := r.URL.Query().Get("user_id")
-	if uid == "" {
+	targetUID := r.URL.Query().Get("user_id")
+	// v1.9.1：带 JWT 身份时，目标 user_id 必须等于本人 id，否则横向越权 403
+	if ctxUID, ok := UserIDFromContext(r); ok {
+		wantUID := strconv.FormatInt(ctxUID, 10)
+		if targetUID != "" && targetUID != wantUID {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": ErrCallerMismatch.Error()})
+			return
+		}
+		targetUID = wantUID
+	}
+	if targetUID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "user_id required"})
 		return
 	}
 	rows, err := d.DB.Query(`SELECT msg_key, status, attempts, COALESCE(last_error,''), title, body
-		FROM im_push_tasks WHERE user_id=$1 ORDER BY id DESC LIMIT 100`, uid)
+		FROM im_push_tasks WHERE user_id=$1 ORDER BY id DESC LIMIT 100`, targetUID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
@@ -91,20 +101,29 @@ func (d *Deps) listPushTasks(w http.ResponseWriter, r *http.Request) {
 		_ = rows.Scan(&mk, &st, &att, &le, &title, &body)
 		out = append(out, map[string]any{"msg_key": mk, "status": st, "attempts": att, "last_error": le, "title": title, "body": body})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user_id": uid, "tasks": out})
+	writeJSON(w, http.StatusOK, map[string]any{"user_id": targetUID, "tasks": out})
 }
 
 // retryPush 手动对 pending 任务真实下发（走 push.Client；未配置返回 503 而不是假成功）。
 func (d *Deps) retryPush(w http.ResponseWriter, r *http.Request) {
-	uid := r.URL.Query().Get("user_id")
-	if uid == "" {
+	uidStr := r.URL.Query().Get("user_id")
+	if uidStr == "" {
 		var req struct {
 			UserID string `json:"user_id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		uid = req.UserID
+		uidStr = req.UserID
 	}
-	if uid == "" {
+	// v1.9.1：带 JWT 身份时，目标 user_id 必须等于本人
+	if ctxUID, ok := UserIDFromContext(r); ok {
+		wantUID := strconv.FormatInt(ctxUID, 10)
+		if uidStr != "" && uidStr != wantUID {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": ErrCallerMismatch.Error()})
+			return
+		}
+		uidStr = wantUID
+	}
+	if uidStr == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "user_id required"})
 		return
 	}
@@ -113,12 +132,11 @@ func (d *Deps) retryPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := context.Background()
-	// 只重试该用户 pending：DispatchPending 扫全部 pending，这里用临时标记等价——直接全量调度。
-	sent, attempted, err := push.DispatchPending(ctx, d.DB, d.PushClient)
+	// 仅重试该用户 pending，绝不越权推送其他用户（按 user_id 过滤 + 行级抢占锁）。
+	sent, attempted, err := push.DispatchUserPending(ctx, d.DB, d.PushClient, uidStr)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": sent, "attempted": attempted})
 }
-

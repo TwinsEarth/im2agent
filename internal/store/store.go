@@ -61,14 +61,14 @@ type NegotiationStore interface {
 
 // Message 消息正文（v0.5.1 新增）。
 type Message struct {
-	MessageID  string         `json:"messageId"`
-	SenderID   uint64         `json:"senderId"`
-	ReceiverID uint64         `json:"receiverId"`
-	BizType    string         `json:"bizType,omitempty"`   // text / approval_card / agent_summary / paid ...
-	Content    string         `json:"content"`
+	MessageID    string         `json:"messageId"`
+	SenderID     uint64         `json:"senderId"`
+	ReceiverID   uint64         `json:"receiverId"`
+	BizType      string         `json:"bizType,omitempty"` // text / approval_card / agent_summary / paid ...
+	Content      string         `json:"content"`
 	AgentContext map[string]any `json:"agentContext,omitempty"` // Agent 摘要/审批卡业务上下文
-	Seq        int64          `json:"seq"`
-	CreatedAt  int64          `json:"createdAt"`
+	Seq          int64          `json:"seq"`
+	CreatedAt    int64          `json:"createdAt"`
 }
 
 // MessageStore 消息正文存储（v0.5.1 新增）。

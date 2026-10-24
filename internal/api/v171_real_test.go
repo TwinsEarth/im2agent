@@ -14,6 +14,7 @@ func TestV171_FriendWebhookDrivesTrustLevel(t *testing.T) {
 	d := v12Deps(t)
 	h := d.IMMux()
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanIMBySuf(t, d.DB, suf) })
 	owner := "v171_owner_" + suf
 	peer := "v171_peer_" + suf
 

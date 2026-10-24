@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -152,17 +153,44 @@ func TestPostgresSkipped(t *testing.T) {
 	if dsn == "" {
 		t.Skip("PG_DSN not set; skipping PostgreSQL-backed store test")
 	}
-	db, err := Open(os.Getenv("PG_DRIVER"), dsn)
+	driver := os.Getenv("PG_DRIVER")
+	if driver == "" {
+		driver = "pgx"
+	}
+	db, err := Open(driver, dsn)
 	if err != nil {
 		t.Skipf("postgres driver/db unavailable: %v", err)
 	}
-	defer db.Close()
+	// t.Cleanup 按 LIFO 执行：先注册的连接关闭最后执行，确保数据清理运行时连接仍可用。
+	t.Cleanup(func() { _ = db.Close() })
+	// users.id 为 identity 列，须先建用户（RETURNING id）；trust_levels 外键 ON DELETE CASCADE，删用户即清信任行。
+	mkUser := func(tag int) uint64 {
+		var id uint64
+		phone := fmt.Sprintf("ENC_PG_STORE_%d_%d", time.Now().UnixNano(), tag)
+		if err := db.QueryRow(`INSERT INTO users(phone_encrypted,status) VALUES($1,1) RETURNING id`, phone).Scan(&id); err != nil {
+			t.Fatalf("seed user: %v", err)
+		}
+		return id
+	}
+	uid := mkUser(1)
+	target := mkUser(2)
+	t.Cleanup(func() {
+		if _, err := db.Exec("DELETE FROM users WHERE id IN ($1,$2)", uid, target); err != nil {
+			t.Errorf("cleanup users: %v", err)
+		}
+		// 前缀兜底：phone_encrypted 以 ENC_PG_STORE_ 开头的行均为本测试数据，
+		// trust_levels 外键 ON DELETE CASCADE 会一并清理。精确 id 覆盖正常路径，
+		// 此前缀仅在测试二进制被重复/并发触发时防御性兜底，确保零残留。
+		if _, err := db.Exec("DELETE FROM users WHERE phone_encrypted LIKE 'ENC_PG_STORE_%'"); err != nil {
+			t.Errorf("cleanup store prefix: %v", err)
+		}
+	})
 	s := NewPostgresStore(db, 10)
 	ctx := context.Background()
-	if err := s.Relation.GrantTrust(ctx, 9001, 9002, trustzone.LevelFamily); err != nil {
+	if err := s.Relation.GrantTrust(ctx, uid, target, trustzone.LevelFamily); err != nil {
 		t.Fatalf("pg grant: %v", err)
 	}
-	lvl, err := s.Relation.GetTrust(ctx, 9001, 9002)
+	lvl, err := s.Relation.GetTrust(ctx, uid, target)
 	if err != nil || lvl != trustzone.LevelFamily {
 		t.Fatalf("pg get level=%v err=%v", lvl, err)
 	}

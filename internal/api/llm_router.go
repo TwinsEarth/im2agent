@@ -24,7 +24,10 @@ func (d *Deps) llmRoute(w http.ResponseWriter, r *http.Request) {
 		Text   string `json:"text"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if req.Text == "" { writeErr(w, 400, "text required"); return }
+	if req.Text == "" {
+		writeErr(w, 400, "text required")
+		return
+	}
 
 	prompt := `把用户消息路由到子 Agent：
 - schedule: 日程/会议/预约

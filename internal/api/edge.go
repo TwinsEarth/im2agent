@@ -73,7 +73,7 @@ func (d *Deps) EdgePipeline(w http.ResponseWriter, r *http.Request) {
 		"should_upload":  res.ShouldUpload,
 		"egress_allowed": allowed,
 		"reason":         reason,
-		"redacted_text":   res.RedactedText,
+		"redacted_text":  res.RedactedText,
 	})
 }
 
@@ -111,9 +111,9 @@ func (d *Deps) EgressReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total":     total,
-		"blocked":   blocked,
+		"total":      total,
+		"blocked":    blocked,
 		"violations": violations,
-		"promise":   "every edge egress decision is persisted; raw audio bytes are rejected by EgressGuard before network.",
+		"promise":    "every edge egress decision is persisted; raw audio bytes are rejected by EgressGuard before network.",
 	})
 }

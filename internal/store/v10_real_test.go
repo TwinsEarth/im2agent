@@ -54,6 +54,11 @@ func TestPGMessageBizTypeAndContext(t *testing.T) {
 	ctx := context.Background()
 	uid := uint64(900000000 + time.Now().UnixNano()%99000000)
 	now := time.Now().Unix()
+	t.Cleanup(func() {
+		if _, err := db.Exec("DELETE FROM messages WHERE sender_id=$1 OR recipient_id=$1", uid); err != nil {
+			t.Errorf("cleanup messages: %v", err)
+		}
+	})
 
 	// 1) 带 biz_type + agent_context
 	id1 := fmt.Sprintf("v10msg_%d_a", now)

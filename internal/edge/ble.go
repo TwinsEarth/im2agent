@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	SOF       byte = 0xAA
+	SOF        byte = 0xAA
 	MaxPayload int  = 512
 )
 
@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	ErrBadSOF    = errors.New("ble: bad start-of-frame")
+	ErrBadSOF     = errors.New("ble: bad start-of-frame")
 	ErrBadCRC     = errors.New("ble: crc mismatch")
 	ErrPayloadLen = errors.New("ble: payload too long")
 	ErrShortFrame = errors.New("ble: frame too short")

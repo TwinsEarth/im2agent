@@ -1,7 +1,8 @@
 // relation-svc：关系链与五档信任矩阵服务（§1.4 / §3.3）。
 // 核心：权限矩阵 + Capability 门控（代码层强制，模型无法绕过）。
 // 运行：go run ./services/relation-svc -selftest
-//       go run ./services/relation-svc -port 8082
+//
+//	go run ./services/relation-svc -port 8082
 package main
 
 import (

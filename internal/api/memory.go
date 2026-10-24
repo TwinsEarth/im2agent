@@ -75,12 +75,12 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 		kw := r.URL.Query().Get("q")
 		if kw == "" {
 			writeJSON(w, 400, map[string]any{"error": "missing q"})
-				return
+			return
 		}
-			hits, err := d.Memory.SearchFacts(r.Context(), memory.Scope{UserID: 1, AgentID: "butler"}, kw)
-			if err != nil {
+		hits, err := d.Memory.SearchFacts(r.Context(), memory.Scope{UserID: 1, AgentID: "butler"}, kw)
+		if err != nil {
 			writeJSON(w, 500, map[string]any{"error": err.Error()})
-				return
+			return
 		}
 		writeJSON(w, 200, map[string]any{"results": hits, "count": len(hits)})
 	})
@@ -129,11 +129,11 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 	// 写入工作记忆（KV，可带 TTL）
 	mux.HandleFunc("POST /v1/memory/working", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			UserID   uint64 `json:"userId"`
-			AgentID  string `json:"agentId"`
-			Key      string `json:"key"`
-			Value    any    `json:"value"`
-			TTL      int64  `json:"ttlSeconds"`
+			UserID  uint64 `json:"userId"`
+			AgentID string `json:"agentId"`
+			Key     string `json:"key"`
+			Value   any    `json:"value"`
+			TTL     int64  `json:"ttlSeconds"`
 		}
 		if err := decode(r, &req); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
@@ -210,8 +210,8 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 	// 注册总 Agent（管家）
 	mux.HandleFunc("POST /v1/memory/master", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			UserID    uint64 `json:"userId"`
-			MasterID  string `json:"masterId"`
+			UserID   uint64 `json:"userId"`
+			MasterID string `json:"masterId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
@@ -290,8 +290,8 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 	// v0.6.2：导入记忆包（仅 master）
 	mux.HandleFunc("POST /v1/memory/import", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			CallerUID uint64              `json:"callerUserId"`
-			Caller    string               `json:"callerAgent"`
+			CallerUID uint64                   `json:"callerUserId"`
+			Caller    string                   `json:"callerAgent"`
 			Export    *memory.UserMemoryExport `json:"export"`
 		}
 		if err := decode(r, &req); err != nil {
@@ -328,10 +328,10 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 	// v0.6.3：事实置信度衰减（记忆遗忘，Agent 自己调）
 	mux.HandleFunc("POST /v1/memory/decay", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			UserID   uint64  `json:"userId"`
-			AgentID  string  `json:"agentId"`
-			Factor   float64 `json:"factor"` // 默认 0.9
-			Min      float64 `json:"min"`    // 默认 0.5
+			UserID  uint64  `json:"userId"`
+			AgentID string  `json:"agentId"`
+			Factor  float64 `json:"factor"` // 默认 0.9
+			Min     float64 `json:"min"`    // 默认 0.5
 		}
 		if err := decode(r, &req); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
@@ -420,10 +420,10 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 	// v0.6.5：对某 scope 事实做快照（master）
 	mux.HandleFunc("POST /v1/memory/snapshot", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			CallerUID    uint64 `json:"callerUserId"`
-			CallerAgent  string `json:"callerAgent"`
-			TargetUID    uint64 `json:"targetUserId"`
-			TargetAgent  string `json:"targetAgent"`
+			CallerUID   uint64 `json:"callerUserId"`
+			CallerAgent string `json:"callerAgent"`
+			TargetUID   uint64 `json:"targetUserId"`
+			TargetAgent string `json:"targetAgent"`
 		}
 		if err := decode(r, &req); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
@@ -442,9 +442,9 @@ func (d *Deps) MemoryMux(serviceName string) http.Handler {
 	// v0.6.5：用快照回滚（master）
 	mux.HandleFunc("POST /v1/memory/restore", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			CallerUID   uint64              `json:"callerUserId"`
-			CallerAgent string              `json:"callerAgent"`
-			Snapshot    *memory.Snapshot    `json:"snapshot"`
+			CallerUID   uint64           `json:"callerUserId"`
+			CallerAgent string           `json:"callerAgent"`
+			Snapshot    *memory.Snapshot `json:"snapshot"`
 		}
 		if err := decode(r, &req); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())

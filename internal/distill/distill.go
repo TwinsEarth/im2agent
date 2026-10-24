@@ -142,7 +142,9 @@ func (e *Engine) Record(userID uint64, agentID, key string, delta float64) {
 	// v1.0.3：异步落 PG improvements
 	if e.db != nil {
 		scn := "通过"
-		if delta < 0 { scn = "驳回" }
+		if delta < 0 {
+			scn = "驳回"
+		}
 		go func() {
 			if _, err := e.db.Exec(`INSERT INTO improvements (user_id, agent_id, scenario, decision, feedback) VALUES ($1,$2,$3,$4,$5)`,
 				fb.UserID, fb.AgentID, fb.Key, scn, ""); err != nil {
@@ -273,13 +275,13 @@ func (e *Engine) ImportUser(list []*DecisionFeedback) {
 
 // UserReport 某用户的蒸馏汇总报表（v0.7.5）。
 type UserReport struct {
-	UserID         uint64 `json:"userId"`
-	TotalKeys       int    `json:"totalKeys"`
-	TightenedKeys   int    `json:"tightenedKeys"`
-	TotalPos        int    `json:"totalPos"`
-	TotalNeg        int    `json:"totalNeg"`
-	PassRate        float64 `json:"passRate"` // 通过/(通过+驳回)
-	TightenedList   []*DecisionFeedback `json:"tightenedList"`
+	UserID        uint64              `json:"userId"`
+	TotalKeys     int                 `json:"totalKeys"`
+	TightenedKeys int                 `json:"tightenedKeys"`
+	TotalPos      int                 `json:"totalPos"`
+	TotalNeg      int                 `json:"totalNeg"`
+	PassRate      float64             `json:"passRate"` // 通过/(通过+驳回)
+	TightenedList []*DecisionFeedback `json:"tightenedList"`
 }
 
 // ReportUser 生成某用户的蒸馏汇总（v0.7.5，master 查看）。

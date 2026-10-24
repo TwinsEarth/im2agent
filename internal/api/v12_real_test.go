@@ -27,6 +27,7 @@ func TestV124_GroupCreatePersistAndBroadcast(t *testing.T) {
 	d := v12Deps(t)
 	h := d.IMMux()
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanIMBySuf(t, d.DB, suf) })
 	gid := "v12g_" + suf
 	owner := "v12_owner_" + suf
 	bob := "v12_bob_" + suf
@@ -100,6 +101,7 @@ func TestV122_WebhookSignatureAndIdempotency(t *testing.T) {
 	d := v12Deps(t)
 	h := d.IMMux()
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanIMBySuf(t, d.DB, suf) })
 	key := "v12key_" + suf
 	raw := []byte(fmt.Sprintf(`{"CallbackType":"C2C.CallbackAfterMsg","From_Account":"v12a_%s","To_Account":"v12b_%s","MsgKey":%q}`, suf, suf, key))
 	ts := time.Now().Unix()
@@ -160,6 +162,7 @@ func TestV123_DispatchApprovalPersistsAudit(t *testing.T) {
 	d := v12Deps(t)
 	h := d.IMMux()
 	suf := fmt.Sprintf("%d", time.Now().UnixNano())
+	// audit_events append-only，不删除；v12agent_<suf> 唯一标识隔离。
 	body := fmt.Sprintf(`{"msgType":"approval_card","from":"v12agent_%s","to":"v12owner_%s","text":"approve"}`, suf, suf)
 	req := httptest.NewRequest("POST", "/v1/im/dispatch", bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")

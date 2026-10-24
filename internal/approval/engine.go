@@ -49,18 +49,18 @@ const (
 type TicketType string
 
 const (
-	TicketNegotiation   TicketType = "NEGOTIATION"
-	TicketPayment       TicketType = "PAYMENT"
-	TicketSkillCall     TicketType = "SKILL_CALL"
+	TicketNegotiation    TicketType = "NEGOTIATION"
+	TicketPayment        TicketType = "PAYMENT"
+	TicketSkillCall      TicketType = "SKILL_CALL"
 	TicketExternalAction TicketType = "EXTERNAL_ACTION"
 )
 
 // Event 一条不可变事件（事件溯源单元）。
 type Event struct {
-	At        time.Time
-	Type      EventType
-	By        string // user / agent / system
-	Note      string
+	At   time.Time
+	Type EventType
+	By   string // user / agent / system
+	Note string
 }
 
 // Ticket 审批单（长生命周期、可寻址实体）。
@@ -108,9 +108,9 @@ type Store interface {
 
 // MemoryStore 进程内存储（单机演示）。
 type MemoryStore struct {
-	mu      sync.Mutex
-	byID    map[string]*Ticket
-	byUser  map[uint64][]string
+	mu     sync.Mutex
+	byID   map[string]*Ticket
+	byUser map[uint64][]string
 }
 
 // NewMemoryStore 创建内存存储。

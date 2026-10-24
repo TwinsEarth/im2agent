@@ -154,10 +154,10 @@ func PermissionsFor(l Level, scope Scope) Permissions {
 // Capability Agent 能力声明。
 type Capability struct {
 	AgentID                    string
-	TrustLevelMin              Level     // 允许执行的最低信任档位
-	AllowedSkills              []string  // Skill 白名单
-	BudgetCentsPerDay          int64     // 单日预算（金额口径）
-	RequiresApprovalAboveCents int64     // 超过该金额自动转人工审批（0 = 不启用）
+	TrustLevelMin              Level    // 允许执行的最低信任档位
+	AllowedSkills              []string // Skill 白名单
+	BudgetCentsPerDay          int64    // 单日预算（金额口径）
+	RequiresApprovalAboveCents int64    // 超过该金额自动转人工审批（0 = 不启用）
 }
 
 // CallContext 一次工具调用的上下文。

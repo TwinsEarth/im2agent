@@ -22,8 +22,8 @@ var defaultWakeWords = []string{"你好管家", "嘿管家", "管家管家", "�
 
 // RuleClassifier 基于关键词/句式的端侧规则分类器（默认实现）。
 type RuleClassifier struct {
-	wakeWords   []string
-	commandRE   []string
+	wakeWords []string
+	commandRE []string
 }
 
 // NewRuleClassifier 返回默认规则分类器。

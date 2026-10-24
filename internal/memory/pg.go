@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -143,6 +144,7 @@ func (p *PGStore) UpsertFact(ctx context.Context, s Scope, f *Fact) error {
 	if f.UpdatedAt == 0 {
 		f.UpdatedAt = now()
 	}
+	EnsureEmbedding(f)
 	meta, _ := json.Marshal(f.Meta)
 	var emb interface{}
 	if len(f.Embedding) > 0 {
@@ -178,18 +180,45 @@ func (p *PGStore) GetFact(ctx context.Context, s Scope, key string) (*Fact, erro
 	return &f, nil
 }
 
+// SearchFacts v1.9.4：真实向量余弦相似度检索，替换 JSONB ILIKE 子串硬匹配。
+// 拉取该 scope 全部事实，用确定性向量与查询向量算余弦距离，按相似度降序返回 topK。
 func (p *PGStore) SearchFacts(ctx context.Context, s Scope, keyword string) ([]*Fact, error) {
-	rows, err := p.db.QueryContext(ctx, `
-		SELECT key, value, confidence, source, updated_at, meta, embedding FROM facts
-		WHERE user_id = $1 AND agent_id = $2
-		  AND (key ILIKE '%' || $3 || '%' OR value ILIKE '%' || $3 || '%')
-		ORDER BY confidence DESC
-	`, s.UserID, s.AgentID, keyword)
+	all, err := p.ListFacts(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanFacts(rows)
+	qv := Embed(keyword)
+	type scored struct {
+		f *Fact
+		s float32
+	}
+	ss := make([]scored, 0, len(all))
+	for _, f := range all {
+		ef := f.Embedding
+		if len(ef) == 0 { // 兼容历史无向量数据
+			ef = Embed(f.Key + " " + f.Value)
+		}
+		ss = append(ss, scored{f, Cosine(qv, ef)})
+	}
+	sort.SliceStable(ss, func(i, j int) bool {
+		if ss[i].s != ss[j].s {
+			return ss[i].s > ss[j].s
+		}
+		return ss[i].f.Confidence > ss[j].f.Confidence
+	})
+	const topK = 20
+	if len(ss) < topK {
+		out := make([]*Fact, 0, len(ss))
+		for _, x := range ss {
+			out = append(out, x.f)
+		}
+		return out, nil
+	}
+	out := make([]*Fact, 0, topK)
+	for _, i := range ss[:topK] {
+		out = append(out, i.f)
+	}
+	return out, nil
 }
 
 func (p *PGStore) ListFacts(ctx context.Context, s Scope) ([]*Fact, error) {

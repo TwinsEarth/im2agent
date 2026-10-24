@@ -65,6 +65,13 @@ func TestDistillPersistsImprovementAndPatch(t *testing.T) {
 	uid := uint64(900000000 + time.Now().UnixNano()%99000000)
 	ag := fmt.Sprintf("v10distill_%d", time.Now().UnixNano())
 	key := "calendar.book"
+	t.Cleanup(func() {
+		for _, tb := range []string{"improvements", "threshold_patches"} {
+			if _, err := db.Exec(fmt.Sprintf("DELETE FROM %s WHERE user_id=$1 AND agent_id=$2", tb), uid, ag); err != nil {
+				t.Errorf("cleanup %s: %v", tb, err)
+			}
+		}
+	})
 
 	// 1) 正反馈 -> improvements
 	eng.Record(uid, ag, key, 1.0)

@@ -421,3 +421,61 @@ v1.2.0-v1.2.4 重做时 REST 请求路径/参数/报文已按官方协议写好�
 ### 已知边界
 - 当前只验证了 administrator→administrator C2C；向任意 C2C/群发送前，对端账号需在腾讯云控制台"账号管理"导入（否则 70107 no such account）。
 - 腾讯云 webhook 回调要求 HTTPS 公网可达，当前裸 HTTP:80，回调链路待后续配域名+证书。
+
+
+---
+
+## v1.9 身份与数据主权（通向 GA）· 2026-10-24
+
+> 背景：v1.8.8 稳定版收口后，各版本反复记录的最大安全债是「全平台一个共享 demo token、业务 user_id 靠 query 传可任意冒充」。v1.9 先立真实身份地基，再兑现 GA 终态（本地加密/可移植/私有化）。
+
+| 版本 | 内容（真实逻辑 + 真实 PG 落库断言） | 状态 |
+|---|---|---|
+| v1.9.0 | JWT 身份地基：stdlib HMAC-SHA256 签发/校验；POST /v1/auth/login 按 identifier 真实 upsert users 签发；GET /v1/auth/me；RequireIdentity 把 sub 注入 context；016 migration 加 users.identifier 唯一索引 | ✅ |
+| v1.9.1 | 多用户隔离收紧：Authenticate 统一认证（静态 token 兼容 / JWT 注入身份）；带 JWT 时目标 user_id 必须等于本人，否则 403；横向越权测试 | ✅ |
+| v1.9.2 | Context 端到端信封加密：AES-GCM + 设备公钥，服务端只存密文 | ⬜ |
+| v1.9.3 | Context 可移植：一键导出/导入加密包，切换平台不丢 Agent | ⬜ |
+| v1.9.4 | pgvector 真实向量检索：替换 JSONB ILIKE，`<=>` ANN | ⬜ |
+| v1.9.5 | 私有化离线 docker-compose 全功能 + 部署/威胁/合规手册（GA 收口） | ⬜ |
+
+### v1.9.0 验证证据（2026-10-24）
+- `internal/auth/jwt.go`+`identity.go`：HMAC-SHA256 JWT，9 个单测全 PASS（往返/错签/过期/错格式/alg 白名单/401 中间件）。
+- `internal/api/auth.go`：upsertUserByIdentifier 真实落 users；同 identifier 幂等复用同一 id。
+- `internal/api/v19_real_test.go` 连真实 PG PASS：login 落库、复用 id、me 返回 token 主体、无/错 token 401。
+- 端到端（生产 106.53.197.47）：login demo-boss→uid=149，重复 login 仍 149、库内 1 行；me 带 token→{user_id:149}，无/错 token→401。
+- 全量 `go test ./internal/...`（带 PG_DSN）30 包 ok，`go vet ./...` 干净。
+### v1.9.1 验证证据（2026-10-24）
+- `internal/auth/identity.go`：新增 `Authenticate`——静态共享 token 放行（无身份，向后兼容）、合法 JWT 放行并把 sub 注入 context、其它一律 401。
+- `internal/api/auth.go`：`ErrCallerMismatch` + 字符串目标一致性判断（push/agent_log）。
+- 收紧路由：`push.go`（listPushTasks/retryPush）、`agent_log.go` 数字 uid 分支——带 JWT 时目标 user_id≠本人 → 403。
+- `internal/api/v191_real_test.go` 连真实 PG PASS：A 读 B=403、B 读 A=403、A 读自己=200、A 不带 user_id 自动落本人=200、静态 token 兼容=200、无/错 token=401。
+- 公网端到端（https://geefish.cn）：login demo-boss→uid=149 的 token，访问 ?user_id=150=403、?user_id=149=200、不带=200；静态 im2a_demo_token 兼容=200；无 token=401。
+- 全量 `go test ./internal/...`（带 PG_DSN）全 ok，`go vet ./...` 干净；healthz=v1.9.1。
+### v1.9.2 验证证据（2026-10-24）
+- `internal/envelope/envelope.go`：AES-256-GCM 信封加解密（stdlib crypto/aes/cipher/rand），32 字节密钥强校验；4 个单测 PASS（往返、密文不含明文、错 key 失败、篡改 tag 失败、短 key 拒绝）。
+- `internal/store/migrations/017_encrypted_context.sql`：`encrypted_context(user_id,realm,kid,nonce bytea,ciphertext bytea)`，已应用到生产库。
+- `internal/api/encrypted_context.go`：`POST/GET /v1/memory/encrypted`；`X-Data-Key`(base64 32B) 客户端密钥；服务端只 INSERT nonce/ciphertext，永不落明文；读时无 key 只返回 ciphertext_only 元信息（证明服务端不持密钥）；横向越权 dbUID≠JWT 主体→403。
+- `internal/api/v192_real_test.go` 连真实 PG PASS：写后直查库 ciphertext 不含明文、正确 key 还原、错 key→422、无 key 不泄露、无 key 写→400、B 读 A→403。
+- 公网端到端（https://geefish.cn）：POST 写入 id=4 stored=ciphertext-only；正确 key 读回明文；错 key=422；无 key 仅 ciphertext_only；PG 直查 nonce=12B、ciphertext 前缀随机 hex（非明文）。
+- 全量 `go test ./internal/...` ok、`go vet` 干净；healthz=v1.9.2。
+### v1.9.3 验证证据（2026-10-24）
+- `internal/api/encrypted_context.go` 追加：`GET /v1/memory/encrypted/export`（导出本人全部记录为密文包，entries=realm/kid/nonce_b64/ciphertext_b64，包内无明文）；`POST /v1/memory/encrypted/import`（密文快照原样落库，服务端不解密、不持密钥，逐条归到当前 JWT 用户）。
+- 设计修正：import 不强校验 key（历史多 key 账号 GCM 验第一条会误伤）；密钥正确性由读取时 GCM 校验体现（错 key 读不出明文）。
+- `internal/api/v193_real_test.go` 连真实 PG PASS：A 写两条 → A 导出（count=2、包不含明文）→ B 导入 → B 用 keyA 解出「MSG-ONE-银行/MSG-TWO-物业」、用错 keyB 解密第一条必须失败。
+- 公网端到端：写一条后 export count=3、grep 包内无明文；import 密文快照返回 imported=3（user_id=149）。
+- 全量 `go test ./internal/...` 无 FAIL、`go vet` 干净；healthz=v1.9.3。
+### v1.9.4 验证证据（2026-10-24）
+- 背景：生产容器为 postgres:16-alpine，官方镜像未带 pgvector .so，且 github release 在服务器直连不通（编译安装链路不可达）；facts 仅 3 行规模小。故采用应用层真实余弦向量检索，向量真实落库 jsonb，后续规模扩大可平滑切 DB 端 pgvector `<=>`。
+- `internal/memory/embedding.go`：Embed（rune unigram+bigram 哈希到 256 维、L2 归一化）、Cosine（真实余弦）、EnsureEmbedding；确定性可复现，零外部依赖。
+- `internal/memory/pg.go`：UpsertFact 自动 EnsureEmbedding；SearchFacts 由 `key/value ILIKE '%kw%'` 改为「拉 scope 全部 → 与查询向量算余弦 → 相似度降序 topK(20)，同分按 confidence」。
+- `internal/memory/v194_real_test.go` 连真实 PG PASS：upsert 三条 → 断言落库向量维度=256；query「交电费」（对三条 value 的 ILIKE 子串全部不命中）余弦近邻第一=「物业水电」；余弦 交电费→水电=0.311 > →健身=0.160；同文本向量一致。
+- 老测试 TestPGFactsSearchAndEmbedding 适配为向量语义（近邻第一=coffee）。
+- 全量 `go test ./internal/... -count=1 -p=1` 无 FAIL、`go vet` 干净；healthz=v1.9.4。
+### v1.9.5 验证证据（2026-10-24，v1.9 收官）
+- `deploy/Dockerfile`：多阶段（golang:1.27-alpine 编译 → alpine:3.20 运行），静态二进制、非 root 用户、内置 /healthz healthcheck；build 阶段内置 GOPROXY=goproxy.cn（生产直连 proxy.golang.org 不通）。
+- `deploy/docker-compose.prod.yml`：全栈 gateway+postgres+redis+kafka，gateway depends_on postgres healthy，镜像 tag 全固定，env 经 .env 注入，JWT_SECRET/ADMIN_TOKEN 用 `${VAR:?}` 强校验缺失即报错。
+- `deploy/.env.example`：私有化配置模板（PG_PASSWORD/GATEWAY_TOKEN/JWT_SECRET/ADMIN_TOKEN/CORS）。
+- `docs/GA_DEPLOY.md`：GA 部署手册（前置要求、一键启动、迁移应用、验证、端口、安全清单、运维、离线 save/load）。
+- 真实证据：`docker compose --env-file deploy/.env.example -f deploy/docker-compose.prod.yml config -q` 通过（4 服务）；`docker build` 产出 im2a-gateway:v1.9.5（33.8MB）；容器内 `im2a-gateway -selftest` PASS（healthz/msg seq/trust grant）。
+- 生产网关已重启，healthz=v1.9.5；go vet 干净。
+- OpenSearch 按内存策略默认关闭（compose 中注释，小机器可不开）。
