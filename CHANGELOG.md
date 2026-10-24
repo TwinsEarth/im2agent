@@ -7,6 +7,19 @@
 ---
 
 
+## [v2.3.0] - 2026-10-25 (L4 编排层 Phase A 骨架)
+
+### 新增
+- `internal/orchestration` 包：Commander（管家，只决策不执行）+ 结构化 Plan JSON Schema（activation/intent/confidence/subtasks/reply_hint）+ Dispatcher 有界循环（maxSteps/maxSubtasks/deadline 熔断）。
+- 安全降级：planner 报错/超时/非法 JSON/低置信(<0.4)一律回退 chat，绝不硬拆任务。
+- 10 个真实单测：合法/代码块包裹/非法 JSON/未知 intent/报错/超时/低置信/超子任务熔断/chat 直通/safe plan。
+- admin 端点 `GET /v1/ops/orchestration` 返回 `l4Enabled`（env `L4_ENABLED=on` 才启用，默认 off，生产路径完全不变）。
+
+### 说明
+- 本版本只落地骨架与开关，不改 webhook 同步路径、不接真实工具；A1 异步队列/A5 令牌桶/B 阶段门控审批将在后续小版本继续。
+
+---
+
 ## [v2.2.9] - 2026-10-25 (A8 错误码语义化)
 
 ### 改进

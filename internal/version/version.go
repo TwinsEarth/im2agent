@@ -2,7 +2,7 @@
 package version
 
 // Version 为当前发布版本（语义化，带 v 前缀），由发布流程打 tag 前统一收口。
-const Version = "v2.2.9"
+const Version = "v2.3.0"
 
 // GitCommit 由构建期 -ldflags -X 注入；未注入时为 dev。
 var GitCommit = "dev"

@@ -256,6 +256,16 @@ func main() {
 		json.NewEncoder(w).Encode(openclaw.SnapshotOutbox())
 	}), adminProbeToken))
 
+	// v2.3.0 L4 编排骨架状态（默认 L4_ENABLED=off，回退 legacy self_chat）
+	mux.Handle("/v1/ops/orchestration", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{
+			"l4Enabled": os.Getenv("L4_ENABLED") == "on",
+			"phase":     "A-skeleton",
+			"package":   "internal/orchestration (Commander+Plan+Dispatcher, tests only)",
+		})
+	}), adminProbeToken))
+
 	// 根路径：欢迎页（不经过认证/限流），方便用户直接打开 IP 验证
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
