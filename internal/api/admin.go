@@ -16,6 +16,7 @@ func (d *Deps) AdminMux() http.Handler {
 	d.adminSupportRegister(mux)
 	d.auditViewRegister(mux)
 	d.moderationAdminRegister(mux)
+	d.broadcastAdminRegister(mux)
 	return mux
 }
 

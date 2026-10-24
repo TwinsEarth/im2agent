@@ -24,23 +24,31 @@ func (s *Service) bound(ctx context.Context, wxid string) (bool, error) {
 	return c > 0, err
 }
 
-// Route 把 fromWxid 的消息路由到 toWxid 的收件箱。
-func (s *Service) Route(ctx context.Context, fromWxid, toWxid, typ string, payload any) error {
+// Route 把 fromWxid 的消息路由到 toWxid 的收件箱，返回新消息 id。
+func (s *Service) Route(ctx context.Context, fromWxid, toWxid, typ string, payload any) (int64, error) {
 	if fromWxid == toWxid {
-		return ErrSelf
+		return 0, ErrSelf
 	}
 	fromOK, err := s.bound(ctx, fromWxid)
-	if err != nil { return err }
+	if err != nil {
+		return 0, err
+	}
 	toOK, err := s.bound(ctx, toWxid)
-	if err != nil { return err }
+	if err != nil {
+		return 0, err
+	}
 	if !fromOK || !toOK {
-		return ErrUnbound
+		return 0, ErrUnbound
 	}
 	pj, _ := json.Marshal(payload)
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO bot_route_messages(from_wxid, to_wxid, msg_type, payload) VALUES ($1,$2,$3,$4)`,
-		fromWxid, toWxid, typ, pj)
-	return err
+	var id int64
+	err = s.db.QueryRowContext(ctx,
+		`INSERT INTO bot_route_messages(from_wxid, to_wxid, msg_type, payload) VALUES ($1,$2,$3,$4) RETURNING id`,
+		fromWxid, toWxid, typ, pj).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // Inbox 拉发给 wxid 的未投递消息。
@@ -66,8 +74,11 @@ func (s *Service) Inbox(ctx context.Context, wxid string, limit int) ([]map[stri
 // Deliver 标记已投递。
 func (s *Service) Deliver(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE bot_route_messages SET delivered=true WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("botroute: msg %d not found", id)
 	}
-	return err
+	return nil
 }

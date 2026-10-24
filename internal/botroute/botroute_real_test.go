@@ -30,7 +30,8 @@ func TestBotRoute(t *testing.T) {
 	s := New(d)
 
 	// A → B 发消息
-	if err := s.Route(ctx, wa, wb, "chat", map[string]string{"text": "你好"}); err != nil {
+	if rid, err := s.Route(ctx, wa, wb, "chat", map[string]string{"text": "你好"}); err != nil || rid == 0 {
+		t.Fatalf("route id=%d err=%v", rid, err)
 		t.Fatalf("route: %v", err)
 	}
 	// B 的 inbox 应拉到 1 条
@@ -55,11 +56,11 @@ func TestBotRoute(t *testing.T) {
 		t.Errorf("after deliver=%d", len(again))
 	}
 	// 自己发自己拒绝
-	if err := s.Route(ctx, wa, wa, "chat", nil); !errors.Is(err, ErrSelf) {
+	if _, err := s.Route(ctx, wa, wa, "chat", nil); !errors.Is(err, ErrSelf) {
 		t.Errorf("self=%v", err)
 	}
 	// 未绑定 wxid 路由拒绝
-	if err := s.Route(ctx, wa, "wx_nobody", "chat", nil); !errors.Is(err, ErrUnbound) {
+	if _, err := s.Route(ctx, wa, "wx_nobody", "chat", nil); !errors.Is(err, ErrUnbound) {
 		t.Errorf("unbound=%v", err)
 	}
 }

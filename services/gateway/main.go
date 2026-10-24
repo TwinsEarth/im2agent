@@ -5,11 +5,15 @@
 package main
 
 import (
-	"human-agent-im/internal/metrics"
-	"human-agent-im/internal/gray"
 	"bytes"
 	"encoding/json"
 	"flag"
+	"human-agent-im/internal/botroute"
+	"human-agent-im/internal/broadcast"
+	"human-agent-im/internal/gray"
+	"human-agent-im/internal/metrics"
+	"human-agent-im/internal/openclaw"
+	"human-agent-im/internal/relay"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +33,171 @@ import (
 	"human-agent-im/internal/security"
 	"human-agent-im/internal/version"
 )
+
+const adminLoginHTML = `<!doctype html><html><head><meta charset="utf-8"><title>Admin Login</title>
+<style>body{background:#0b0f14;color:#e6edf3;font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.box{background:#131a22;padding:32px;border-radius:12px;width:340px}
+input{width:100%;padding:10px;margin:10px 0;background:#0b0f14;border:1px solid #222c38;color:#fff;border-radius:6px}
+button{width:100%;padding:10px;background:#3b82f6;border:0;color:#fff;border-radius:6px;cursor:pointer}
+.err{color:#ef4444;font-size:12px;min-height:16px}</style></head><body>
+<div class="box"><h2>IM2A Admin</h2><form onsubmit="event.preventDefault();const t=document.getElementById('t').value;if(t){document.cookie='admin_token='+t+';path=/;max-age=86400';location.reload()}">
+<input id="t" type="password" placeholder="Admin Token"><button>登录</button></form>
+<div class="err" id="e"></div></div>
+<script>if(location.search.includes('e=1')){document.getElementById('e').textContent='Token 错误'}</script>
+</body></html>`
+const wechatBindHTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>微信绑定</title>
+<style>
+body{font-family:-apple-system,sans-serif;background:#1a1a2e;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}
+.card{background:#16213e;padding:40px;border-radius:16px;text-align:center;max-width:420px}
+h1{font-size:20px;margin:0 0 8px}
+p{color:#aaa;font-size:13px;margin:8px 0}
+#qr{margin:20px auto;background:#fff;padding:12px;border-radius:8px;width:240px;height:240px;display:flex;align-items:center;justify-content:center}
+#qr img{width:100%;height:100%}
+#timer{font-size:28px;color:#6cf;font-weight:700;margin:10px 0}
+button{background:#0f3460;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;margin-top:10px}
+button:hover{background:#164880}
+a{color:#6cf;font-size:12px;word-break:break-all}
+#status{margin-top:14px;font-size:13px;color:#ffd166}
+</style></head><body>
+<div class="card">
+<h1>绑定你的微信</h1>
+<p>用微信扫一扫下方二维码，5 分钟内有效</p>
+<div id="qr"><span style="color:#999">加载中...</span></div>
+<div id="timer">05:00</div>
+<button onclick="start()">重新生成二维码</button>
+<p id="status"></p>
+<a id="link" target="_blank"></a>
+</div>
+<script>
+const TOK="im2a_demo_token";let sec=300,timer;
+async function start(){
+  document.getElementById('status').textContent='启动 OpenClaw...';
+  const r=await fetch('/v1/openclaw/start',{method:'POST',headers:{Authorization:'Bearer '+TOK}});
+  const j=await r.json();
+  if(!j.qrUrl){document.getElementById('status').textContent='失败: '+(j.error||JSON.stringify(j));return}
+  document.getElementById('qr').innerHTML='<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&data='+encodeURIComponent(j.qrUrl)+'">';
+  document.getElementById('link').href=j.qrUrl;
+  document.getElementById('link').textContent='或点此链接打开';
+  sec=300;clearInterval(timer);
+  timer=setInterval(()=>{
+    sec--;if(sec<0){clearInterval(timer);start();return}
+    const m=Math.floor(sec/60),s=sec%60;
+    document.getElementById('timer').textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  },1000);
+  document.getElementById('status').textContent='等待扫码...';
+}
+start();
+</script></body></html>
+`
+const playgroundHTML = `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>IM2A API Playground</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f1419;color:#e6e6e6;height:100vh;display:flex;flex-direction:column}
+header{padding:10px 16px;background:#1a2230;border-bottom:1px solid #2a3444;display:flex;gap:12px;align-items:center}
+header b{color:#6cf;font-size:14px}
+header input{background:#0f1419;border:1px solid #2a3444;color:#e6e6e6;padding:6px 10px;border-radius:4px;font-size:12px;font-family:monospace}
+#tok{width:340px}
+#base{width:240px}
+main{flex:1;display:flex;overflow:hidden}
+#left{width:280px;border-right:1px solid #2a3444;overflow-y:auto;padding:8px}
+#left .g{color:#6cf;font-size:11px;margin:10px 0 4px;text-transform:uppercase}
+#left button{display:block;width:100%;text-align:left;background:none;border:none;color:#ccc;padding:5px 8px;font-size:12px;cursor:pointer;border-radius:3px;font-family:monospace}
+#left button:hover{background:#1a2230}
+#left button.active{background:#23406b;color:#fff}
+#left .m{display:inline-block;width:42px;font-weight:700}
+.mPOST{color:#6f6}.mGET{color:#69f}.mDELETE{color:#f66}
+#mid{flex:1;padding:16px;overflow-y:auto;border-right:1px solid #2a3444}
+#mid label{display:block;font-size:12px;color:#999;margin:10px 0 4px}
+#mid input,#mid select,#mid textarea{width:100%;background:#0a0e14;border:1px solid #2a3444;color:#e6e6e6;padding:8px;border-radius:4px;font-family:monospace;font-size:12px}
+#mid textarea{min-height:140px;resize:vertical}
+#mid button{margin-top:14px;background:#23406b;color:#fff;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:13px}
+#mid button:hover{background:#2d5188}
+#right{flex:1;padding:16px;overflow-y:auto}
+#right h3{font-size:12px;color:#999;margin-bottom:8px}
+#out{background:#0a0e14;border:1px solid #2a3444;border-radius:4px;padding:12px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;min-height:300px}
+code{color:#6cf}
+</style>
+</head>
+<body>
+<header>
+  <b>IM2A API</b>
+  <input id="base" value="https://geefish.cn">
+  <input id="tok" placeholder="Bearer token" value="im2a_demo_token">
+</header>
+<main>
+<div id="left"></div>
+<div id="mid">
+  <label>方法</label><select id="method"></select>
+  <label>路径（{id} 用下方替换）</label><input id="path">
+  <label>路径参数</label><input id="pathParams" placeholder="例如：id=123 或 qrId=oc_xxx">
+  <label>Body (JSON)</label><textarea id="body">{}</label>
+  <button onclick="send()">发送 →</button>
+</div>
+<div id="right">
+  <h3>响应</h3>
+  <div id="out">点左侧端点开始</div>
+</div>
+</main>
+<script>
+const EP=[
+ ['健康',['GET','/healthz',{}]],
+ ['监控',['GET','/metrics',{}]],
+ ['认证',['POST','/v1/auth/login',{user_id:"u_demo",device:"web"}],['GET','/v1/auth/me',{}]],
+ ['微信身份',['POST','/v1/wechat/identify',{wxid:"o_demo"}]],
+ ['Bot组',['POST','/v1/wechat/groups',{owner:"u_demo",name:"我的组"}],['POST','/v1/wechat/bindings',{groupId:"g_xxx",wxid:"o_demo",device:"ios"}]],
+ ['OpenClaw 扫码',['POST','/v1/openclaw/qr',{owner:"u_demo",device:"ios"}],['POST','/v1/openclaw/callback',{qrId:"oc_xxx",wxid:"wx_demo"}],['GET','/v1/openclaw/qr/{qrId}',{qrId:"oc_xxx"}]],
+ ['审批',['GET','/v1/approvals',{}]],
+ ['协商',['GET','/v1/negotiations',{}]],
+ ['付费',['GET','/v1/paid/inbox',{}]],
+ ['Agent',['GET','/v1/agents/directory',{}]],
+ ['临时群',['POST','/v1/tempgroup/create',{peer:"o_other"}]],
+ ['Bot 路由',['POST','/v1/botroute/send',{to:"wx_target",text:"hello"}]],
+ ['工作汇报',['POST','/v1/report/generate',{userId:"u_demo"}]],
+];
+const left=document.getElementById('left');
+EP.forEach(([g,eps])=>{
+  const h=document.createElement('div');h.className='g';h.textContent=g;left.appendChild(h);
+  eps.forEach(ep=>{
+    const b=document.createElement('button');
+    b.innerHTML=` + "`" + `<span class="m m${ep[0]}">${ep[0]}</span> ${ep[1]}` + "`" + `;
+    b.onclick=()=>select(b,ep);
+    left.appendChild(b);
+  });
+});
+let cur=null;
+function select(btn,ep){
+  document.querySelectorAll('#left button').forEach(x=>x.classList.remove('active'));
+  btn.classList.add('active');cur=ep;
+  document.getElementById('method').innerHTML=` + "`" + `<option>${ep[0]}</option>` + "`" + `;
+  document.getElementById('path').value=ep[1];
+  document.getElementById('body').value=JSON.stringify(ep[2],null,2);
+  document.getElementById('out').textContent='';
+}
+async function send(){
+  const base=document.getElementById('base').value.replace(/\/$/,'');
+  let path=document.getElementById('path').value;
+  const pp=document.getElementById('pathParams').value;
+  if(pp) pp.split(';').forEach(kv=>{const[k,v]=kv.split('=');path=path.replace('{'+k.trim()+'}',v.trim())});
+  const tok=document.getElementById('tok').value;
+  const out=document.getElementById('out');
+  out.textContent='请求中...';
+  try{
+    const opt={method:document.getElementById('method').value,headers:{Authorization:'Bearer '+tok,'Content-Type':'application/json'}};
+    if(opt.method!=='GET'&&opt.method!=='DELETE') opt.body=document.getElementById('body').value;
+    const t0=Date.now();
+    const r=await fetch(base+path,opt);
+    const txt=await r.text();
+    let pretty=txt;try{pretty=JSON.stringify(JSON.parse(txt),null,2)}catch(e){}
+    out.textContent=` + "`" + `HTTP ${r.status}  ${Date.now()-t0}ms\n\n${pretty}` + "`" + `;
+  }catch(e){out.textContent='ERR: '+e.message}
+}
+</script>
+</body></html>
+`
 
 func main() {
 	port := flag.Int("port", 8080, "listen port")
@@ -86,19 +255,23 @@ func main() {
 	// v1.9.7：限流阈值可经环境变量配置（默认 100 rps / burst 200，GA 压测可调大）
 	limitRPS, limitBurst := 100, 200
 	if v := os.Getenv("RATE_LIMIT_RPS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil { limitRPS = n }
+		if n, err := strconv.Atoi(v); err == nil {
+			limitRPS = n
+		}
 	}
 	if v := os.Getenv("RATE_LIMIT_BURST"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil { limitBurst = n }
+		if n, err := strconv.Atoi(v); err == nil {
+			limitBurst = n
+		}
 	}
 	// 中间件链（外→内）：CORS 白名单 → 安全审计落库 → 限流 → 认证 → 安全响应头 → 业务
 	wrap := func(h http.Handler) http.Handler {
 		h = auth.Authenticate(h, token, jwtSecret)
 		h = ratelimit.IPLimit(h, limitRPS, limitBurst)
-		h = auditor.Audit(h)               // 捕获 401/403/429 与正常请求，落 security_events
-		h = security.CORS(corsAllowed, h)  // 预检在认证前；非白名单来源拒绝
-		h = security.Headers(h)            // 所有响应（含 401/429）均带安全头
-		h = security.MaxBody(2<<20, h)     // 统一 2MiB 请求体上限，缓解内存放大 DoS
+		h = auditor.Audit(h)              // 捕获 401/403/429 与正常请求，落 security_events
+		h = security.CORS(corsAllowed, h) // 预检在认证前；非白名单来源拒绝
+		h = security.Headers(h)           // 所有响应（含 401/429）均带安全头
+		h = security.MaxBody(2<<20, h)    // 统一 2MiB 请求体上限，缓解内存放大 DoS
 		return h
 	}
 
@@ -144,18 +317,74 @@ func main() {
 	mux.Handle("GET /v1/memory/encrypted/export", wrap(http.HandlerFunc(deps.ExportEncryptedContext)))
 	mux.Handle("POST /v1/memory/encrypted/import", wrap(http.HandlerFunc(deps.ImportEncryptedContext)))
 
-
 	mux.Handle("/v1/approvals", wrap(deps.ApprovalMux("approval-engine")))
 	mux.Handle("/v1/approvals/", wrap(deps.ApprovalMux("approval-engine")))
 	mux.Handle("/v1/negotiations", wrap(deps.NegotiationMux("negotiation-svc")))
 	mux.Handle("/v1/negotiations/", wrap(deps.NegotiationMux("negotiation-svc")))
 	mux.Handle("/v1/a2a/", wrap(deps.A2AMux()))
 	mux.Handle("/v1/wechatbot/", wrap(deps.WechatV2Mux())) // v2.0.5 微信 Bot 协议入口
-	mux.Handle("/v1/wechat/", wrap(deps.WechatV2Mux()))      // v2.0.0/v2.0.1 Bot组/识别
-	mux.Handle("/v1/quota/", wrap(deps.WechatV2Mux()))       // v2.0.1 Agent 额度
-	mux.Handle("/v1/tempgroup/", wrap(deps.WechatV2Mux()))   // v2.0.8 临时协商群
-	mux.Handle("/v1/botroute/", wrap(deps.WechatV2Mux()))    // v2.0.9 Bot 间路由
-	mux.Handle("/v1/report/", wrap(deps.WechatV2Mux()))      // v2.1.0 工作汇报
+	mux.Handle("/v1/wechat/", wrap(deps.WechatV2Mux()))    // v2.0.0/v2.0.1 Bot组/识别
+	mux.Handle("/v1/quota/", wrap(deps.WechatV2Mux()))     // v2.0.1 Agent 额度
+	mux.Handle("/v1/tempgroup/", wrap(deps.WechatV2Mux())) // v2.0.8 临时协商群
+	mux.Handle("/v1/botroute/", wrap(deps.WechatV2Mux()))  // v2.0.9 Bot 间路由
+	mux.Handle("/v1/report/", wrap(deps.WechatV2Mux()))    // v2.1.0 工作汇报
+	adminAuth := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c, _ := r.Cookie("admin_token")
+			tok := ""
+			if c != nil {
+				tok = c.Value
+			}
+			if tok == "" {
+				if q := r.URL.Query().Get("token"); q != "" {
+					tok = q
+					http.SetCookie(w, &http.Cookie{Name: "admin_token", Value: tok, Path: "/", MaxAge: 86400})
+				}
+			}
+			if tok == "" || tok != adminProbeToken {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(401)
+				w.Write([]byte(adminLoginHTML))
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
+	mux.Handle("/admin/api-playground", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(playgroundHTML))
+	})))
+	mux.Handle("/admin/broadcast", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(broadcastHTML))
+	})))
+	mux.HandleFunc("/admin/wechat-bind", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(wechatBindHTML))
+	})
+
+	// v2.1.2 OpenClaw 账号目录 watcher：新微信扫码后自动落库
+	ocWatcher := openclaw.NewWatcher("/root/.openclaw/openclaw-weixin/accounts", "http://127.0.0.1:8080/v1/openclaw/auto-bind")
+	ocWatcher.Start()
+
+	// v2.2.0 微信 → openclaw → IM2A relay：MCP streamable-http 端点。
+	// 仅本机 openclaw 调用（127.0.0.1），不经过公网/认证包装，也不暴露到 nginx。
+	if deps.DB != nil {
+		accountsDir := os.Getenv("OPENCLAW_ACCOUNTS_DIR")
+		if accountsDir == "" {
+			accountsDir = "/root/.openclaw/openclaw-weixin/accounts"
+		}
+		ocResolver := relay.NewAccountResolver(accountsDir)
+		relaySvc := relay.New(deps.DB, ocResolver, deps.Model, botroute.New(deps.DB)).
+			WithPeerSender(openclaw.NewSender()).
+			WithNegotiation(relay.NewWechatBridge(deps.Store.Negotiation))
+		// v2.2.2 全量广播：复用同一 openclaw 账号解析器与出站发送器。
+		deps.Broadcast = broadcast.New(deps.DB, openclaw.NewSender(), ocResolver)
+		mux.Handle("/v2/wechat/mcp", api.NewMCPHandler(relaySvc))
+		// v2.2.1 标准 REST webhook（openclaw / 渠道确定性 POST），与 MCP 共用 relay 中枢。
+		mux.Handle("/v1/wechat/webhook", api.NewWechatWebhookHandler(relaySvc, deps.DB))
+	}
+	mux.Handle("/v1/openclaw/", wrap(deps.WechatV2Mux())) // v2.1.2 扫码绑定
 	mux.Handle("/v1/directory/", wrap(deps.DirectoryMux()))
 	mux.Handle("/v1/exp/", wrap(deps.ExperienceMux()))
 	mux.Handle("/v1/paid/", wrap(deps.PaymentMux("payment-svc")))
@@ -304,7 +533,7 @@ func main() {
 	mux.Handle("POST /v1/privacy/export", auth.RequireToken(privacyH, adminToken))
 	mux.Handle("POST /v1/privacy/delete", auth.RequireToken(privacyH, adminToken))
 	mux.Handle("GET /v1/privacy/requests", auth.RequireToken(privacyH, adminToken))
-	mux.Handle("/admin/", deps.AdminPage())
+	mux.Handle("/admin/", adminAuth(deps.AdminPage()))
 	mux.Handle("POST /v1/edge/pipeline", wrap(http.HandlerFunc(deps.EdgePipeline)))
 	mux.Handle("GET /v1/edge/egress/report", wrap(http.HandlerFunc(deps.EgressReport)))
 	mux.Handle("/v1/model/", wrap(api.ModelMux("model-svc", *deps)))

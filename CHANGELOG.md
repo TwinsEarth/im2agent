@@ -6,6 +6,36 @@
 
 ---
 
+## [v2.2.2] - 2026-10-24 (微信全量广播 · 运营后台一键群发)
+
+### 新增
+- 运营后台一键群发：`POST /v1/admin/broadcast`（admin token 鉴权）+ 管理页 `/admin/broadcast`（目标预览 / 文案 / 实时进度 / 逐条明细 / 历史）。
+- 官方 Bot 账号向所有在线绑定微信逐条投递，自动排除官方发送号自身；worker 池（默认 4）+ 全局节流（默认 1.2s/条）规避微信风控。
+- 落库 `wechat_broadcasts`（任务）与 `wechat_broadcast_deliveries`（逐条明细，UNIQUE(broadcast_id,to_wxid) 幂等），迁移 028。
+- 状态机 pending→running→completed/partial/failed；只处理 pending 明细，重入安全，已发/已失败不重发。
+- 支持 `BROADCAST_ACCOUNT` 显式指定官方发送号，缺省取 admin 组绑定、再兜底最小 accountId。
+- 查询 `GET /v1/admin/broadcast?preview=1|id=|list`：目标预览 / 单任务明细 / 历史列表。
+
+### 测试
+- internal/broadcast 真实 PG 测试：排除发送方自身、一条失败→partial、messageId/error 回写、重入幂等；fakeSender 不触达微信，全部 t.Cleanup 零残留。
+
+---
+
+## [v2.2.1] - 2026-10-24 (微信 Bot 智能链路 · 实机打通)
+
+### 微信 → openclaw → IM2A gateway 中枢（6 项工程任务全部真机验证）
+- **#104 入站**：标准 REST 端点 `POST /v1/wechat/webhook`（?key= / X-Webhook-Key 鉴权，幂等 msgId），与 MCP 工具 `im2a_route` 共用同一 relay.Service；openclaw 无原生入站出站 webhook，日常入站由 AGENTS.md 强制的 MCP 薄转发承载（已真机验证）。
+- **#105 识别**：webhook 按 wxid 查 wechat_identity，返回 userId/bound。
+- **#106 路由**：self（发给自己 Bot）→ DeepSeek 主 / Kimi 备双通道秘书回复；peer（@对方）→ A2A 协商。
+- **#107 出站**：`openclaw message send --channel openclaw-weixin` CLI Sender，真实返回 deliveryStatus/messageId；OPENCLAW_DRY_RUN 支持离线断言。
+- **#108 Agent↔Agent 协商**：微信 peer 消息桥接为 8 态协商会话（PROPOSE→WORKING→…→COMPLETED/REJECTED/AUTH_REQUIRED），落 negotiation_sessions/turns，webhook 带 negoSessionId/negoIntent 推进；轮次熔断上抛。
+- **#109 用户↔用户**：消息落 bot_route_messages + wechat_relay_messages，经发送方 bot 账号 openclaw 主动推对方微信，delivered/messageId 回写。
+- **迁移**：027_relay_peer_delivery（peer_delivered / peer_message_id）。
+- **测试**：relay 真实 PG 测试（self/幂等/peer 推送/协商 PROPOSE→ACCEPT），openclaw CLI dry-run 真机 PASS，全部零残留 t.Cleanup。
+- **模型**：DeepSeek 主 / Kimi(kimi-k2.6) 备 ChainProvider，主失败自动切备。
+
+---
+
 ## [v2.1.1] - 2026-10-24 (稳定版)
 
 ### 微信 Bot 体系（v2.0.0–v2.1.0 全量落地 + 实机公网可达）

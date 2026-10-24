@@ -71,11 +71,21 @@ func NewDeps(driver, dsn string) (*Deps, error) {
 	cloud := model.NewOpenAICompatible(
 		os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL"),
 	)
+	// v2.2.0：云端主/备双通道（DeepSeek 主，Kimi/Moonshot 备），主通道失败自动切备。
+	var cloudChain model.Provider = cloud
+	if os.Getenv("LLM_API_KEY") != "" && os.Getenv("LLM_FALLBACK_API_KEY") != "" {
+		fb := model.NewOpenAICompatible(
+			os.Getenv("LLM_FALLBACK_BASE_URL"),
+			os.Getenv("LLM_FALLBACK_API_KEY"),
+			os.Getenv("LLM_FALLBACK_MODEL"),
+		)
+		cloudChain = model.NewChain(cloud, fb)
+	}
 	// v1.3 重做：有 key 直接 cloud；无 key 回退 hybrid
-	hybrid := model.NewHybrid(edge, cloud)
+	hybrid := model.NewHybrid(edge, cloudChain)
 	var m model.Provider = hybrid
 	if os.Getenv("LLM_API_KEY") != "" {
-		m = cloud
+		m = cloudChain
 	}
 	hybrid.SetBus(&modelBusAdapter{bus: bus})
 	return &Deps{Store: s, Skills: rt, Engine: eng, Memory: mem, Bus: bus, Distill: distillEng, Model: m, Stream: streamHub, DB: db}, nil
