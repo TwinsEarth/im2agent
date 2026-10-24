@@ -159,6 +159,21 @@ func parsePeer(text string) (peer, body string, ok bool) {
 	return "", "", false
 }
 
+// A8：把模型/调用错误翻译成用户知道下一步的自然回复（不再一律"反应慢了一下"）。
+func friendlyModelErr(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "我这边反应慢了一下，麻烦再发一次试试～"
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "429") || strings.Contains(msg, "rate") || strings.Contains(msg, "too many") {
+		return "这会儿问的人有点多，稍等几秒再发一次哈～"
+	}
+	if strings.Contains(msg, "401") || strings.Contains(msg, "402") || strings.Contains(msg, "invalid") || strings.Contains(msg, "key") {
+		return "我这边服务配置出了点问题，稍等我修一下～"
+	}
+	return "我这边脑子暂时卡了一下，麻烦再发一次试试～"
+}
+
 // handleSelfChat 私聊助手：取最近上下文 → 双通道模型 → 落库。
 func (s *Service) handleSelfChat(ctx context.Context, accountID, botWxid, fromWxid, text, idemKey string) (*Result, error) {
 	// B7：占位语与 LLM 生成【并发】进行——CLI 出站约 2.6s，与模型约 1s 重叠，
@@ -208,7 +223,7 @@ func (s *Service) handleSelfChat(ctx context.Context, accountID, botWxid, fromWx
 		})
 		if err != nil {
 			log.Printf("[v226] model stream failed: %v", err)
-			reply = "我这边反应慢了一下，麻烦再发一次试试～"
+			reply = friendlyModelErr(err)
 		} else {
 			routedTo = resp.RoutedTo
 			reply = strings.TrimSpace(sb.String())
@@ -221,7 +236,7 @@ func (s *Service) handleSelfChat(ctx context.Context, accountID, botWxid, fromWx
 		})
 		if err != nil {
 			log.Printf("[v226] model chat failed: %v", err)
-			reply = "我这边反应慢了一下，麻烦再发一次试试～"
+			reply = friendlyModelErr(err)
 		} else {
 			routedTo = resp.RoutedTo
 			reply = strings.TrimSpace(resp.Content)
