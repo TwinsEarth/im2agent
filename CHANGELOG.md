@@ -7,6 +7,21 @@
 ---
 
 
+## [v2.3.9] - 2026-10-25 (C1 Skill 返回结果微信渠道格式化)
+
+### 新增
+- `internal/skillruntime/wechatfmt.go`：
+  - `FormatForWechat(CallResult)`：把 Skill 结构化结果翻译成 ≤200 字、人类可读、无内部 ID 的短文案；
+  - DENIED/REQUIRES_APPROVAL 分别翻译成"需要确认"和"等你回复 1/2/3"；
+  - 内部字段（wxid/ticket_id/message_id/task_id/url/…）一律剥离，不泄露给微信；
+  - `FormatErrorForWechat(err)`：把 timeout/permission/quota/未知错误翻译成用户能懂的话。
+- 6 个单测：文本透传、DENIED 友好、审批提示、内部 ID 剥离、200 字截断、错误分类。
+
+### 价值
+- Skill 真办完事后，微信里看到的是"已下单：咖啡机，金额：1200"，而不是一坨 JSON 或 wxid 串；不再出现机器味。
+
+---
+
 ## [v2.3.8] - 2026-10-25 (B4 超时升级 worker + 执行幂等)
 
 ### 新增
