@@ -7,6 +7,21 @@
 ---
 
 
+## [v2.3.8] - 2026-10-25 (B4 超时升级 worker + 执行幂等)
+
+### 新增
+- `internal/approval/worker.go`：
+  - `EscalationSink` 接口解耦通知出口（生产接微信/手表/短信）；
+  - `Worker` 周期 ticker 调 `CheckTimeouts(now)`，把 30min/2h 升级事件投递到 sink；
+  - `Tick(ctx, now)` 可单测直接调，不必等真实 ticker；
+  - `CompleteIdempotent` / `FailIdempotent`：网络重试/worker 重复投递时不重复扣费/不报错。
+- 5 个单测：30min 升级手表、2h 升级短信（二次 tick）、准时不升级、Complete 重复幂等、已 rejected 后 Fail 吞掉。
+
+### 价值
+- 审批超时不再死等；微信里用户没回 30 分钟自动推手表、2 小时升级短信；执行重试不会因状态机限制重复副作用。
+
+---
+
 ## [v2.3.7] - 2026-10-25 (B3 微信文本审批卡片)
 
 ### 新增
