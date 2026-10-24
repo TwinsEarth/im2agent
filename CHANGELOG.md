@@ -7,6 +7,22 @@
 ---
 
 
+## [v2.3.7] - 2026-10-25 (B3 微信文本审批卡片)
+
+### 新增
+- `internal/approval/wechatcard.go`：`ResolveReply(userID, text, listPending)` 把微信文本解释为审批决策。
+  - 纯数字 1/2/3 直接对应 approve/reject/modify；
+  - 关键词命中（同意/通过/批准/OK；驳回/拒绝/不要/太贵/不行；修改/改成/换/调整）；
+  - 无 pending ticket 或关键词不命中时返回 `ErrNotAnApprovalReply`，正常走聊天路径，不抢占闲聊；
+  - 严格按 userID 隔离，跨用户回复不会处理别人的审批单。
+- `Decision.Apply(engine, by)` 一行落到 Approve/Reject/Modify。
+- 8 个单测：数字同意、关键词驳回、关键词修改、无 pending 时按聊天、闲聊不抢、英文 OK、跨用户不串、长文保守命中。
+
+### 价值
+- 微信没有按钮，"1 同意 / 2 驳回 / 3 修改" 这种纯文本卡片闭环跑通；用户在微信里回一条就完成审批，不需要切到任何后台。
+
+---
+
 ## [v2.3.6] - 2026-10-25 (B2 审批 action_hash 绑定)
 
 ### 新增

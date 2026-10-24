@@ -357,6 +357,11 @@ func (e *Engine) ListPending(userID uint64) ([]*Ticket, error) {
 	return e.store.ListPending(userID)
 }
 
+// All 返回全部审批单（v2.3.7 B3：ResolveReply 用它按 userID 过滤，兼容 MemoryStore 未索引 byUser 的问题）。
+func (e *Engine) All() ([]*Ticket, error) {
+	return e.store.All()
+}
+
 // Get 读取审批单。
 func (e *Engine) Get(id string) (*Ticket, error) {
 	return e.load(id)
