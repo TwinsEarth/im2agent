@@ -6,6 +6,30 @@
 
 ---
 
+
+## [v2.2.5] - 2026-10-21 (微信Bot「理解用户」修复 · LLM 意图门 · 自然化人设 · 改名识别增强)
+
+### 根因
+真机日志定位：微信 Bot 不智能不是模型弱，而是 `Relay()` 里有一个**无条件**的协商自动回复——只要最近存在一张未完成协商单，用户任何自由文本（如「你能干什么」「你叫什么名字」）都会被挂到旧协商单并转发，回复一律「好，跟小红说了」；无收件人时还会自己猜收件人。属于「规则先行、LLM 后置」导致的不理解。
+
+### 新增
+- **LLM 意图门 `internal/relay/intent.go`**：`classifyIntent` 用 LLM（temperature=0、MaxTokens=200、12s 超时）输出 JSON `{intent: chat|relay|nego_reply, target, body, confidence}`：闲聊/提问=chat、明确「告诉某人 X」=relay、直接回答协商问题=nego_reply。复用同包 `extractJSONObject`。**安全降级**：非法 JSON / 模型超时 / 低置信一律落回 chat，绝不臆造联系人。
+- **改名识别增强 `internal/relay/rename.go`**：新增 `stripRenameGreeting` 剥句首寒暄（你好/您好/嗨/哈喽/hi/hello/喂）与前导标点；`renameAgentRe` 增加 `我的Agent叫/我的助理叫/我的小助理叫/给我的agent起名叫` 等模式。修复「你好，我叫小房」「我的 Agent 叫小佑佑」识别不到。
+
+### 修复
+- **协商不再劫持自由文本**：`nego_autoreply.go` 改为仅在 `intent=nego_reply` 时才推进协商并转发，否则交回 self_chat（旧文件备份 `nego_autoreply.go.bak_v227`）。
+- **自然化私人助理人设**：`relay.go` 的 self_chat systemPrompt 改为口语化、有温度；被问「你能做什么」自然分条；外发/金钱/承诺先确认；拿不准收件人就反问。外发不附 wxid/协商单号/messageId。
+
+### 测试
+- 新增 `intent_test.go`、`rename_parse_test.go`；`go test ./internal/relay/` 全 PASS。
+
+### 真机验证（真实落库 + probe 零残留）
+- 真实 DeepSeek 跑 5 条分类：你能干什么→chat、你叫什么名字→chat、两点可以我带3人→nego_reply、告诉小红今晚7点晚饭→relay target=小红、明天10点开会→不臆造收件人。
+- 线上 loopback `POST /v1/wechat/webhook` probe（真实 A bot 造 probe 身份、验完 DELETE 复核 0 残留）：闲聊→self_chat 自然能力介绍、协商答复→nego_reply、「你好我叫小房」→user_name=小房、「我的 Agent 叫小佑佑」→agent_name=小佑佑。
+- gateway 重新构建部署 active，healthz（带 token）返回 status=ok。
+
+---
+
 ## [v2.2.4] - 2026-10-25 (微信实机链路修复 · 双大脑消除 · 自然姓名转发 · 出站韧性)
 
 ### 修复（真机 E2E 暴露的真实缺陷）
