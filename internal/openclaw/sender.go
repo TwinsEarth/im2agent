@@ -171,6 +171,10 @@ type sendCLIOutput struct {
 // dryRun=true 时追加 --dry-run，真实 exec 但不发出微信，返回 "dry-run:<target>"。
 // sendOnce 单次发送（原逻辑）。
 func (s *Sender) sendOnce(ctx context.Context, accountID, targetWxid, text string) (string, error) {
+	// v2.3.2 A5：出站令牌桶，同账号 ≥3s/条；同步 Send 与 outbox worker 共用。
+	if err := WaitOutbound(ctx, accountID); err != nil {
+		return "", err
+	}
 	if accountID == "" || targetWxid == "" || strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("%w: account/target/text required", ErrSendFailed)
 	}
