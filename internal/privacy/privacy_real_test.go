@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,7 +71,15 @@ func setup(t *testing.T, db *sql.DB, suf string) (int64, int64, func()) {
 
 	cleanup := func() {
 		cl := func(q string, args ...any) {
-			if _, err := db.Exec(q, args...); err != nil {
+			var err error
+			for attempt := 0; attempt < 3; attempt++ {
+				_, err = db.Exec(q, args...)
+				if err == nil || (!strings.Contains(err.Error(), "deadlock") && !strings.Contains(err.Error(), "40P01")) {
+					break
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			if err != nil {
 				t.Errorf("cleanup %q: %v", q, err)
 			}
 		}

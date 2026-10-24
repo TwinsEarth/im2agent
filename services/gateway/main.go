@@ -150,6 +150,12 @@ func main() {
 	mux.Handle("/v1/negotiations", wrap(deps.NegotiationMux("negotiation-svc")))
 	mux.Handle("/v1/negotiations/", wrap(deps.NegotiationMux("negotiation-svc")))
 	mux.Handle("/v1/a2a/", wrap(deps.A2AMux()))
+	mux.Handle("/v1/wechatbot/", wrap(deps.WechatV2Mux())) // v2.0.5 微信 Bot 协议入口
+	mux.Handle("/v1/wechat/", wrap(deps.WechatV2Mux()))      // v2.0.0/v2.0.1 Bot组/识别
+	mux.Handle("/v1/quota/", wrap(deps.WechatV2Mux()))       // v2.0.1 Agent 额度
+	mux.Handle("/v1/tempgroup/", wrap(deps.WechatV2Mux()))   // v2.0.8 临时协商群
+	mux.Handle("/v1/botroute/", wrap(deps.WechatV2Mux()))    // v2.0.9 Bot 间路由
+	mux.Handle("/v1/report/", wrap(deps.WechatV2Mux()))      // v2.1.0 工作汇报
 	mux.Handle("/v1/directory/", wrap(deps.DirectoryMux()))
 	mux.Handle("/v1/exp/", wrap(deps.ExperienceMux()))
 	mux.Handle("/v1/paid/", wrap(deps.PaymentMux("payment-svc")))

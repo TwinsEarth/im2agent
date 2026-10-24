@@ -6,6 +6,32 @@
 
 ---
 
+## [v2.1.1] - 2026-10-24 (稳定版)
+
+### 微信 Bot 体系（v2.0.0–v2.1.0 全量落地 + 实机公网可达）
+- **v2.0.0** Bot 组绑定：一个 wxid 绑一组、组内 ios/android/windows 三端，DB 唯一索引强制。
+- **v2.0.1** wxid 持久识别（首次 Identify 分配 uid，后续复用）；Agent 衍生额度（1 主 / N 管理 / N 子），VIP 档位 free/basic ¥99/pro ¥299/enterprise ¥999，事务 FOR UPDATE 扣费。
+- **v2.0.2** 公私钥身份（A 模式服务器托管）：Ed25519 密钥对、私钥 AES-256-GCM 加密落库。
+- **v2.0.4** 微信 Bot 协议契约：信封 / 卡片按钮回传 / 幂等键 / Ed25519 签名。
+- **v2.0.5** API 内核：时间漂移 ±300s、验签、幂等重放、类型分发。
+- **v2.0.6** Bot SDK Client：自动构造信封/签名/幂等/POST。
+- **v2.0.7** Agent 间通信全链路：identify→occupy→directory upsert→a2a.send。
+- **v2.0.8** 临时协商群：创建/加入/发言/历史/销毁（软标 closed + 物理清消息成员）。
+- **v2.0.9** Bot↔Bot 路由：双方必须已绑定、禁止自发自、收件箱拉取。
+- **v2.1.0** 个人 Agent 工作汇报：聚合当日活动生成草稿、人工审批、按 user+date 去重。
+
+### 审查修复（本轮）
+- 补 018 表生产库迁移；为 wechatbot 包补真实落库测试（组满/端重复/wxid 跨组/坏设备/Unbind）。
+- 新增统一网关 `internal/api/wechat_v2.go`，18 个 v2 端点接入 `/v1/wechatbot/ /v1/wechat/ /v1/quota/ /v1/tempgroup/ /v1/botroute/ /v1/report/`，公网 https://geefish.cn 实测可达。
+- 修复 019 migration `plan_key` 未加引号导致网关启动崩溃（embed 迁移 42703）。
+- 修复 6 个测试文件 `defer d.Close()` 早于 `t.Cleanup` 造成连接先关、删除静默失败（t.Cleanup LIFO 先删后关），8 张 v2 表测试后残留全 0。
+- privacy cleanup 死锁（40P01）加重试×3。
+
+### 门禁
+- `go build ./...`、`go vet ./...`、37 包全量 `go test ./...` 两轮零 FAIL；gateway 实机 active。
+
+---
+
 ## [v1.9.9] - 2026-10-24 (Beta)
 
 ### v1.9.0–v1.9.5 身份与数据主权
