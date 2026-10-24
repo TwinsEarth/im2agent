@@ -7,6 +7,20 @@
 ---
 
 
+## [v2.3.11] - 2026-10-25 (C4 出口护栏)
+
+### 新增
+- `internal/orchestration/guardrail.go`：
+  - `ExitGuard.AuditMessage(text)` 外发前粗过滤：黑名单（wxid_/gh_/http(s):///internal:///ticket_/msg_id_/trace_）、空文案兜底、超长截断（≤500 字）；
+  - 命中后不直接拒绝，统一改写成一句安全兜底文案，`HitRule` 留审计；
+  - `SetForbidden(words)` 运行期可扩展黑名单。
+- 6 个单测：干净文案通过、空文案兜底、wxid 拦截、URL 拦截、超长截断、黑名单可扩展。
+
+### 价值
+- Agent 永远不可能把 wxid、内部 URL、ticket 单号直接甩到微信用户面前；超长回复自动折叠，不会刷屏。
+
+---
+
 ## [v2.3.10] - 2026-10-25 (C3 子 Agent 记忆检索与注入)
 
 ### 新增
