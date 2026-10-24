@@ -6,6 +6,27 @@
 
 ---
 
+## [v1.9.9] - 2026-10-24 (Beta)
+
+### v1.9.0–v1.9.5 身份与数据主权
+- **v1.9.0** JWT 身份地基：stdlib HMAC-SHA256 签发/校验、强制 HS256、恒定时间比较、登录 upsert、/me。
+- **v1.9.1** 多用户隔离收紧：Authenticate 统一中间件，横向越权读他人资源一律 403。
+- **v1.9.2** Context 端到端信封加密：AES-256-GCM、随机 nonce、GCM 认证、错 key 拒绝、明文不出端。
+- **v1.9.3** Context 可移植导出/导入加密包（密文快照迁移语义）。
+- **v1.9.4** 应用层真实余弦向量检索（256 维 bigram 哈希 + L2 归一化），替换 ILIKE。
+- **v1.9.5** 私有化离线全栈：多阶段 Dockerfile（33.8MB）、全栈 compose、GA 手册。
+
+### v1.9.6–v1.9.9 GA 上线
+- **v1.9.7** 全链路压测：1000 并发 ×5000 真实写 PG，QPS 3911、p99 690ms、零失败；100 并发协商会话全 201；限流阈值 env 可配置（RATE_LIMIT_RPS/BURST）。
+- **v1.9.8** 灰度发布门控：internal/gray FNV 一致性分桶，按 user/Agent 百分比放量；GET /v1/gray/eval；10000 实体分布实测。
+- **v1.9.9** Prometheus 监控：internal/metrics 真实计数 + /metrics 文本端点 + 请求延迟 summary；/metrics 与 /healthz 加 admin token 鉴权；监控告警手册。
+
+### 安全
+- /metrics、/healthz、/v1/admin/*、/v1/privacy/* 统一 admin token 鉴权。
+- 修复 real_test cleanup 顺序导致的测试残留（t.Cleanup LIFO 先删后关）。
+
+---
+
 ## [v1.8.8] - 2026-10-24
 
 ### 门禁 `-race` 实测缺陷修复（全新缓存稳定通过）

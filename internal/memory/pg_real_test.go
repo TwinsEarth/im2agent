@@ -136,12 +136,13 @@ func TestPGFactsSearchAndEmbedding(t *testing.T) {
 			t.Fatalf("upsert fact %s: %v", f.Key, err)
 		}
 	}
+	// v1.9.4：向量余弦检索返回 topK 并按相似度排序（不再 ILIKE 硬过滤）。
 	got, err := st.SearchFacts(ctx, sc, "咖啡")
 	if err != nil {
 		t.Fatalf("search facts: %v", err)
 	}
-	if len(got) != 1 || got[0].Key != "coffee" {
-		t.Fatalf("ILIKE want 1 coffee, got %d", len(got))
+	if len(got) == 0 || got[0].Key != "coffee" {
+		t.Fatalf("向量检索「咖啡」近邻第一应是 coffee, got %d keys=%v", len(got), keysOf(got))
 	}
 	f, err := st.GetFact(ctx, sc, "emb")
 	if err != nil {
@@ -150,4 +151,12 @@ func TestPGFactsSearchAndEmbedding(t *testing.T) {
 	if len(f.Embedding) != 3 || f.Embedding[0] != 0.1 || f.Embedding[2] != 0.3 {
 		t.Fatalf("embedding round-trip mismatch: %v", f.Embedding)
 	}
+}
+
+func keysOf(fs []*Fact) []string {
+	out := make([]string, 0, len(fs))
+	for _, f := range fs {
+		out = append(out, f.Key)
+	}
+	return out
 }

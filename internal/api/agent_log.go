@@ -23,6 +23,15 @@ func (d *Deps) AgentLog(w http.ResponseWriter, r *http.Request) {
 		// 非数字 userId 时按 agent_id 查（兼容字符串 ID）
 		uid = 0
 	}
+	// v1.9.1：数字 user_id 维度必须服从调用者 JWT 身份
+	if uid > 0 {
+		caller, cerr := ResolveCallerUID(r, uid)
+		if cerr != nil {
+			writeErr(w, 403, cerr.Error())
+			return
+		}
+		uid = caller
+	}
 	var rows interface {
 		Close() error
 		Next() bool
