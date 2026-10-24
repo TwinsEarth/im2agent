@@ -250,6 +250,11 @@ func main() {
 	mux.Handle("/healthz", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api.HealthHandler("gateway")(w, r)
 	}), adminProbeToken))
+	// A7：出站排队/并发/熔断可观测（admin 鉴权）
+	mux.Handle("/v1/ops/outbox", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(openclaw.SnapshotOutbox())
+	}), adminProbeToken))
 
 	// 根路径：欢迎页（不经过认证/限流），方便用户直接打开 IP 验证
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

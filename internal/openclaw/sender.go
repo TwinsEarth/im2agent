@@ -268,3 +268,44 @@ func (s *Sender) SendTyping(ctx context.Context, accountID, targetWxid string) e
 	// 预留：若 openclaw 后续提供 typing action，在此调用。
 	return nil
 }
+
+// OutboxStats A7：出站排队/并发/熔断可观测（admin 自查看"当前第几个/预计等待"）。
+type OutboxStat struct {
+	OutboxDepth    int             `json:"outboxDepth"`
+	OutboxCapacity int             `json:"outboxCapacity"`
+	ActiveSends    int             `json:"activeSends"`
+	MaxConcurrency int             `json:"maxConcurrency"`
+	PausedAccounts []PausedAccount `json:"pausedAccounts"`
+}
+
+type PausedAccount struct {
+	AccountID    string `json:"accountId"`
+	Until        string `json:"until"`
+	RemainingSec int    `json:"remainingSec"`
+}
+
+// OutboxStats 快照当前出站状态（不阻塞发送）。
+func SnapshotOutbox() OutboxStat {
+	st := OutboxStat{
+		OutboxDepth:    len(outbox),
+		OutboxCapacity: cap(outbox),
+		ActiveSends:    len(sendSem),
+		MaxConcurrency: cap(sendSem),
+	}
+	pauseMu.Lock()
+	now := time.Now()
+	for acc, until := range pausedUntil {
+		if now.Before(until) {
+			st.PausedAccounts = append(st.PausedAccounts, PausedAccount{
+				AccountID:    acc,
+				Until:        until.Format(time.RFC3339),
+				RemainingSec: int(time.Until(until).Seconds()),
+			})
+		}
+	}
+	pauseMu.Unlock()
+	if st.PausedAccounts == nil {
+		st.PausedAccounts = []PausedAccount{}
+	}
+	return st
+}
