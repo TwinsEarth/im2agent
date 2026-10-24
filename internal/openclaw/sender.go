@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,8 +40,10 @@ type outboxJob struct {
 }
 
 var (
-	outbox     = make(chan outboxJob, 1024)
-	outboxOnce sync.Once
+	outbox       = make(chan outboxJob, 1024)
+	outboxOnce   sync.Once
+	outboxSent   int64 // atomic
+	outboxFailed int64 // atomic
 )
 
 // D4：出站并发上限 10。每次发送 openclaw CLI 子进程都吃内存，
@@ -60,6 +64,7 @@ func startOutboxWorker() {
 					_, err := (&Sender{bin: defaultBin(), home: "/root", channel: "openclaw-weixin", extraPATH: "/opt/node-v22.23.4-linux-x64/bin", timeout: 10 * time.Second}).sendOnce(ctx, job.accountID, job.targetWxid, job.text)
 					cancel()
 					if err == nil {
+						atomic.AddInt64(&outboxSent, 1)
 						break
 					}
 					if errors.Is(err, ErrTokenExpired) {
@@ -67,6 +72,8 @@ func startOutboxWorker() {
 					}
 					time.Sleep(time.Duration(2<<uint(i)) * time.Second)
 				}
+				atomic.AddInt64(&outboxFailed, 1)
+				log.Printf("[outbox] retry-exhausted account=%s target=%s text=%q", job.accountID, job.targetWxid, job.text)
 			}
 		}()
 	})
@@ -276,6 +283,8 @@ type OutboxStat struct {
 	ActiveSends    int             `json:"activeSends"`
 	MaxConcurrency int             `json:"maxConcurrency"`
 	PausedAccounts []PausedAccount `json:"pausedAccounts"`
+	SentTotal      int64           `json:"sentTotal"`
+	FailedTotal    int64           `json:"failedTotal"`
 }
 
 type PausedAccount struct {
@@ -291,6 +300,8 @@ func SnapshotOutbox() OutboxStat {
 		OutboxCapacity: cap(outbox),
 		ActiveSends:    len(sendSem),
 		MaxConcurrency: cap(sendSem),
+		SentTotal:      atomic.LoadInt64(&outboxSent),
+		FailedTotal:    atomic.LoadInt64(&outboxFailed),
 	}
 	pauseMu.Lock()
 	now := time.Now()
