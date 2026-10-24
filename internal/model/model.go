@@ -8,6 +8,7 @@
 package model
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -127,12 +128,22 @@ type OpenAICompatible struct {
 // NewOpenAICompatible 构造云端模型客户端。
 // baseURL 如 "https://api.deepseek.com/v1"、"http://localhost:11434/v1"。
 // 传空 apiKey 时回退桩（离线可跑）。
+// sharedPool B4：全进程共享的连接池/keep-alive Transport，复用 TCP+TLS，
+// 避免每次调用重新握手（省 0.2~0.5s/次）。
+var sharedPoolTransport = &http.Transport{
+	MaxIdleConns:        128,
+	MaxIdleConnsPerHost: 32,
+	IdleConnTimeout:     90 * time.Second,
+	ForceAttemptHTTP2:   true,
+}
+
 func NewOpenAICompatible(baseURL, apiKey, model string) *OpenAICompatible {
 	return &OpenAICompatible{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
 		model:   model,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		// B4：流式不能用硬整体超时（否则长流被切断）；连接池复用 keep-alive。
+		client: &http.Client{Transport: sharedPoolTransport},
 	}
 }
 
@@ -446,4 +457,73 @@ func (h *HybridProvider) recordCall(req *ChatRequest, resp *ChatResponse) {
 // Name 实现 Provider。
 func (h *HybridProvider) Name() string {
 	return "hybrid(edge:" + h.Edge.Name() + ",cloud:" + h.Cloud.Name() + ")"
+}
+
+// ---- B1：SSE 流式调用（首 token 即出，降低感知延迟）----
+
+// ChatStream 以 stream=true 调用上游，每个增量文本通过 onDelta 回调即时吐出。
+func (o *OpenAICompatible) ChatStream(ctx context.Context, req *ChatRequest, onDelta func(delta string)) (*ChatResponse, error) {
+	if o.apiKey == "" || o.baseURL == "" || o.model == "" {
+		return nil, fmt.Errorf("model: stream unavailable (stub/offline)")
+	}
+	payload := map[string]any{"model": o.model, "messages": req.Messages, "temperature": req.Temperature, "stream": true}
+	if req.MaxTokens > 0 {
+		payload["max_tokens"] = req.MaxTokens
+	}
+	body, _ := json.Marshal(payload)
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL+"/chat/completions", bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	start := time.Now()
+	resp, err := o.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("model: upstream: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("model: upstream status %d: %s", resp.StatusCode, string(raw))
+	}
+
+	var sb strings.Builder
+	br := bufio.NewReader(resp.Body)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		line, err := br.ReadString('\n')
+		if err != nil {
+			break
+		}
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(data), &chunk) != nil {
+			continue
+		}
+		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			tok := chunk.Choices[0].Delta.Content
+			sb.WriteString(tok)
+			if onDelta != nil {
+				onDelta(tok)
+			}
+		}
+	}
+	return &ChatResponse{Content: sb.String(), Model: o.model, Duration: time.Since(start)}, nil
 }

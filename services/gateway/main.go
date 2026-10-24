@@ -6,12 +6,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"human-agent-im/internal/botroute"
 	"human-agent-im/internal/broadcast"
 	"human-agent-im/internal/gray"
 	"human-agent-im/internal/metrics"
+	"human-agent-im/internal/model"
 	"human-agent-im/internal/openclaw"
 	"human-agent-im/internal/relay"
 	"human-agent-im/internal/tempgroup"
@@ -63,6 +65,12 @@ a{color:#6cf;font-size:12px;word-break:break-all}
 <div class="card">
 <h1>绑定你的微信</h1>
 <p>用微信扫一扫下方二维码，5 分钟内有效</p>
+<div id="guide" style="display:flex;gap:8px;justify-content:center;margin:6px 0 2px;flex-wrap:wrap">
+<span style="background:#0f3460;padding:5px 10px;border-radius:14px;font-size:12px">① 打开微信</span>
+<span style="background:#0f3460;padding:5px 10px;border-radius:14px;font-size:12px">② 点右上角「+」</span>
+<span style="background:#0f3460;padding:5px 10px;border-radius:14px;font-size:12px">③ 扫一扫</span>
+<span style="background:#164880;padding:5px 10px;border-radius:14px;font-size:12px">④ 确认登录</span>
+</div>
 <div id="qr"><span style="color:#999">加载中...</span></div>
 <div id="timer">05:00</div>
 <button onclick="start()">重新生成二维码</button>
@@ -75,17 +83,37 @@ async function start(){
   document.getElementById('status').textContent='启动 OpenClaw...';
   const r=await fetch('/v1/openclaw/start',{method:'POST',headers:{Authorization:'Bearer '+TOK}});
   const j=await r.json();
-  if(!j.qrUrl){document.getElementById('status').textContent='失败: '+(j.error||JSON.stringify(j));return}
-  document.getElementById('qr').innerHTML='<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&data='+encodeURIComponent(j.qrUrl)+'">';
-  document.getElementById('link').href=j.qrUrl;
-  document.getElementById('link').textContent='或点此链接打开';
-  sec=300;clearInterval(timer);
-  timer=setInterval(()=>{
-    sec--;if(sec<0){clearInterval(timer);start();return}
-    const m=Math.floor(sec/60),s=sec%60;
-    document.getElementById('timer').textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
-  },1000);
-  document.getElementById('status').textContent='等待扫码...';
+  const st=document.getElementById('status');
+  function show(msg){st.textContent=msg;}
+  if(j.queued){
+    show(j.message+'：前面排第 '+(j.position||'?')+' 位，预计约 '+((j.etaSeconds||0)/60).toFixed(1)+' 分钟。'+(j.nextStep||''));
+    const owner=j.owner;
+    clearInterval(timer);
+    timer=setInterval(async()=>{
+      try{
+        const q=await (await fetch('/v1/openclaw/pool/queue?owner='+encodeURIComponent(owner),{headers:{Authorization:'Bearer '+TOK}})).json();
+        if(q.ready&&q.qrUrl){clearInterval(timer);draw(q);}
+        else if(q.queued){show(q.message+'：前面排第 '+(q.position||'?')+' 位，预计约 '+((q.etaSeconds||0)/60).toFixed(1)+' 分钟。');}
+        else {show('状态刷新中...');}
+      }catch(e){show('网络抖动，正在重试...');}
+    },2000);
+    return;
+  }
+  if(!j.qrUrl){show((j.message||'失败: '+(j.error||JSON.stringify(j)))+(j.nextStep?'（'+j.nextStep+'）':''));return}
+  draw(j);
+  function draw(j){
+    document.getElementById('qr').innerHTML='<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&data='+encodeURIComponent(j.qrUrl)+'">';
+    document.getElementById('link').href=j.qrUrl;
+    document.getElementById('link').textContent='或点此链接打开';
+    sec=300;clearInterval(timer);
+    timer=setInterval(()=>{
+      sec--;
+      if(sec<0){clearInterval(timer);show('二维码已过期，'+(j.nextStep||'点「重新生成二维码」再扫'));return}
+      const m=Math.floor(sec/60),s=sec%60;
+      document.getElementById('timer').textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+    },1000);
+    show('等待扫码...（扫码成功会直接发欢迎语到你微信）');
+  }
 }
 start();
 </script></body></html>
@@ -368,6 +396,13 @@ func main() {
 	ocWatcher := openclaw.NewWatcher("/root/.openclaw/openclaw-weixin/accounts", "http://127.0.0.1:8080/v1/openclaw/auto-bind")
 	ocWatcher.Start()
 
+	// A9 掉线/失效自动探测：账号文件消失 = 被踢/登录态失效，通知管理员并发"需重扫"给用户。
+	ocHealth := openclaw.NewHealthChecker("/root/.openclaw/openclaw-weixin/accounts", 30*time.Second, openclaw.AccountNotifier(healthNotifier{db: deps.DB}))
+	ocHealth.Start()
+	mux.Handle("GET /v1/openclaw/health", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, ocHealth.Status())
+	})))
+
 	// v2.2.0 微信 → openclaw → IM2A relay：MCP streamable-http 端点。
 	// 仅本机 openclaw 调用（127.0.0.1），不经过公网/认证包装，也不暴露到 nginx。
 	if deps.DB != nil {
@@ -382,9 +417,12 @@ func main() {
 				WithTempGroup(tempgroup.New(deps.DB)))
 		// v2.2.2 全量广播：复用同一 openclaw 账号解析器与出站发送器。
 		deps.Broadcast = broadcast.New(deps.DB, openclaw.NewSender(), ocResolver)
+		// B2：注入流式模型，微信自聊首块即时回发
+		relaySvc.SetStreamer(model.NewOpenAICompatible(os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL")))
 		mux.Handle("/v2/wechat/mcp", api.NewMCPHandler(relaySvc))
 		// v2.2.1 标准 REST webhook（openclaw / 渠道确定性 POST），与 MCP 共用 relay 中枢。
 		mux.Handle("/v1/wechat/webhook", api.NewWechatWebhookHandler(relaySvc, deps.DB))
+		mux.HandleFunc("/v1/chat/stream", api.ChatStreamHandler)
 		// v2.0.8 双 Agent 自动协商：双方 Agent 经 A2A 状态机多轮对谈，每轮真实推送给对方微信。
 		mux.Handle("/v1/wechat/auto-nego", api.NewWechatAutoNegoHandler(relaySvc))
 	}
@@ -560,6 +598,30 @@ func main() {
 	log.Printf("gateway listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, metrics.Middleware(mux))) // v1.9.9 全请求计数
 }
+
+// healthNotifier 实现 openclaw.AccountNotifier：掉线时落日志 + 给该账号绑定用户发"需重扫"。
+type healthNotifier struct{ db interface{} }
+
+func (n healthNotifier) OnOffline(accountID, wxid string) {
+	log.Printf("[A9-health] ALERT account=%s 已掉线（疑似被踢/登录态失效）", accountID)
+	// 读账号文件拿到 wxid（账号文件消失前已知；若已删则跳过发送）
+	accFile := "/root/.openclaw/openclaw-weixin/accounts/" + accountID + ".json"
+	if b, err := os.ReadFile(accFile); err == nil {
+		var af struct {
+			UserID string `json:"userId"`
+		}
+		if json.Unmarshal(b, &af) == nil && af.UserID != "" {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if _, err := openclaw.NewSender().Send(ctx, accountID, af.UserID, "你的登录好像掉线了，麻烦重新扫一下二维码绑回来哈。"); err != nil {
+					log.Printf("[A9-health] 重扫提示发送失败 account=%s err=%v", accountID, err)
+				}
+			}()
+		}
+	}
+}
+func (n healthNotifier) OnOnline(accountID string) {}
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

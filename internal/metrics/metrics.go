@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	mu       sync.Mutex
-	counters = map[string]map[string]int64{} // name -> labelSet -> value
+	mu        sync.Mutex
+	counters  = map[string]map[string]int64{} // name -> labelSet -> value
 	summaries = map[string][]float64{}        // name -> 延迟样本（ms）
 )
 
@@ -104,4 +104,11 @@ type statusWriter struct {
 func (s *statusWriter) WriteHeader(c int) {
 	s.code = c
 	s.ResponseWriter.WriteHeader(c)
+}
+
+// Flush 转发底层 Flusher，保证 SSE 流式接口不被中间件吞掉。
+func (s *statusWriter) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }

@@ -19,11 +19,11 @@ type AccountFile struct {
 
 // Watcher 扫描 OpenClaw 账号目录，新账号出现时自动回调本地 auto-bind。
 type Watcher struct {
-	dir     string
-	cbURL   string
-	seen    map[string]bool
-	client  *http.Client
-	stopCh  chan struct{}
+	dir    string
+	cbURL  string
+	seen   map[string]bool
+	client *http.Client
+	stopCh chan struct{}
 }
 
 func NewWatcher(dir, cbURL string) *Watcher {
@@ -92,14 +92,15 @@ func (w *Watcher) scan() error {
 			continue
 		}
 		w.seen[full] = true
-		log.Printf("[openclaw-watcher] new account %s wxid=%s", e.Name(), af.UserID)
-		go w.bind(af.UserID)
+		accountID := strings.TrimSuffix(e.Name(), ".json")
+		log.Printf("[openclaw-watcher] new account %s wxid=%s account=%s", e.Name(), af.UserID, accountID)
+		go w.bind(af.UserID, accountID)
 	}
 	return nil
 }
 
-func (w *Watcher) bind(wxid string) {
-	payload := `{"wxid":"` + wxid + `","device":"ios","owner":"admin"}`
+func (w *Watcher) bind(wxid, accountID string) {
+	payload := `{"wxid":"` + wxid + `","device":"ios","owner":"admin","account":"` + accountID + `"}`
 	req, _ := http.NewRequest("POST", w.cbURL, strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer im2a_demo_token")

@@ -6,6 +6,27 @@
 
 ---
 
+## [v2.2.4] - 2026-10-25 (微信实机链路修复 · 双大脑消除 · 自然姓名转发 · 出站韧性)
+
+### 修复（真机 E2E 暴露的真实缺陷）
+- **入站 400 根因（数字 msgId 反序列化）**：openclaw 渠道把 `msgId` 当 number 下发，IM2A webhook 结构体原要求 string，导致 `json: cannot unmarshal number into ... msgId of type string`，所有微信入站被丢弃。`webhookRequest.MsgID` 改为自定义 `flexString` 类型，`UnmarshalJSON` 兼容 string/number/null，幂等键统一 `string(MsgID)`。修复后数字 msgId POST 从 400 变 200，真机入站全部落库。
+- **双大脑消除（openclaw 不再自调模型）**：openclaw 入站插件 `maybeIM2ARelay` 仅在 `IM2A_RELAY_URL` 存在时才转发，否则回落到本地 deepseek-chat，形成"openclaw 自己回一遍 + IM2A 又回一遍"。新增常驻 systemd 单元 `openclaw-gateway.service`（`Environment=IM2A_RELAY_URL=http://127.0.0.1:8080/v1/wechat/webhook`、`Restart=always`），替换手工 nohup 网关；入站确定性转发 IM2A、不再走自身模型（真机日志 `maybeIM2ARelay replied`，无 `model-fetch`）。同时落实 D2 进程崩溃自拉起。
+- **自然姓名转发不再被旧协商吸走**：自由文本「告诉小红今晚7点晚饭」此前因无 `@im.wechat` 原文不匹配 `parsePeer`，被 `autoReplyOpenNego` 挂到 24h 内未完成协商单成 `nego_reply`、且 `peer_delivered=f`（库标未送达但对方实际收到）。新增 `internal/relay/peer_named.go`：意图前缀（告诉/转告/转达/发给/通知/向/跟，可带帮我/替我/一下）+ 已绑定联系人姓名（自定义昵称优先、内置称呼兜底、长名优先、重名优先有协商关系者、排除本人）切出姓名与正文；`Relay` 在命名之后、原始 wxid 解析与旧协商挂接之前插入姓名路由，命中即按"收件人自己的 bot 账号"真实投递并准确标记 `peer_delivered`。
+- **真机验证（两真机）**：A（阿明）「告诉小红明天上午10点开会」→ `route=peer_route`、`peerWxid=B`、`peer_delivered=t`、真实 `peerMessageId`，B 手机确认收到；A 只收到一条自然回执「好，我转给小红了。」，无单号/wxid。
+
+### 新增（出站稳定性 / 延迟 / 韧性，A/B/C/D 系列）
+- **SSE 流式**：`internal/api/chat_stream.go` 流式首 token 即出，修正 SSE chunk 结构体 tag（`content`/`delta`/`choices`）。
+- **错误码语义化与重试**：`internal/errcode/errcode.go` 区分真限流与会话过期（-14/-2）；指数退避（2s→4s→30s）、-14 会话过期熔断暂停、10s 发送超时 + 异步补发、发送信号量容量、outbox 缓冲、连接池/keep-alive 复用。
+- **健康检查**：`internal/openclaw/health.go` 账号在线/掉线探测。
+- **统一超时预算**：网关/发送全链路 deadline。
+
+### 测试
+- 新增 `internal/relay/peer_named_test.go`：意图前缀与姓名/正文切分（含"说下午"不被误吞、冒号/逗号分隔、长名优先、只有称呼无正文不转发）。
+- 新增 `internal/openclaw/sender_logic_test.go`：`TestClassifySendError`/`TestBackoffPlan`/`TestCircuitBreaker`/`TestSendSemaphoreCapacity`/`TestOutboxBuffer`/`TestPauseDuration` 6 个纯逻辑单测。
+- `make gate` 全 PASS（build / vet / `-race` 全包 / 7 服务自测 / gateway 路由自测），零 FAIL；测试 wxid 用 `probe_*` 验完即删（零残留）。
+
+---
+
 ## [v2.2.3] - 2026-10-24 (微信实机链路打通 · 用户命名 · 自然语言 · 广播幂等)
 
 ### 新增
