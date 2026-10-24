@@ -7,6 +7,36 @@
 ---
 
 
+## [v2.3.10] - 2026-10-25 (C3 子 Agent 记忆检索与注入)
+
+### 新增
+- `internal/orchestration/memory_inject.go`：
+  - `BuildSubagentContext(ctx, store, sc, userText)` 把子 Agent 启动时要用的记忆拼成 ≤600 字系统补充；
+  - 关键词命中 facts → 列出偏好/常办事；未命中则兜底列最多 3 条高置信事实；
+  - 再拉最近 5 条 episodes；按 Scope（user+agent）严格隔离，不串其他子 Agent；
+  - 低置信 (<0.5) 事实不注入，nil store 安全返回空。
+- 5 个单测：fact+episode 注入、跨 Scope 不泄露、空记忆返回空、nil store 安全、低置信过滤。
+
+### 价值
+- 子 Agent 启动时不再"失忆"：说过"咖啡只喝美式"，下次采购子 Agent 自动知道；其他子 Agent 的记忆不串扰。
+
+---
+
+## [v2.3.10] - 2026-10-25 (C2 工作记忆层)
+
+### 新增
+- `internal/memory/working.go`：三层记忆里补"工作记忆"层（语义 Fact / 情景 Episode 已有）。
+  - `WorkingMemory` 进程内、按 (user, agent) 隔离、默认 10 分钟 TTL；
+  - `Attach(user, agent, goal)` 开新任务；`Update(step, pending)` 推进并续命；
+  - `Snapshot(user, agent)` 直接给 prompt 一段"当前任务：X；下一步：Y；待办：Z"；
+  - `Clear` 任务完成主动清；`GC` 批量清过期。
+- 6 个单测：Attach/Get、Update 续命、子 Agent 隔离、过期自动失效、Clear、空 snapshot。
+
+### 价值
+- 同一个用户在"采购"和"日程"两个子 Agent 之间不会串任务；任务结束 10 分钟自动忘，下一条消息不会被上一个任务的上下文污染。
+
+---
+
 ## [v2.3.9] - 2026-10-25 (C1 Skill 返回结果微信渠道格式化)
 
 ### 新增
