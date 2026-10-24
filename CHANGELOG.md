@@ -7,6 +7,21 @@
 ---
 
 
+## [v2.3.5] - 2026-10-25 (B1 PermissionGate PreToolUse)
+
+### 新增
+- `internal/orchestration/gate.go`：PermissionGate 在 Dispatcher 执行任何 Skill 前同步裁决。
+  - deny-by-default：未在 builtinTools 注册的工具一律拒绝。
+  - capability 白名单：schedule/procurement/property/legal/parenting/master 各有允许调用的工具集。
+  - trust 档位：高风险工具（purchase.checkout / im.send / mail.send / system.delete_record）要求 trust≥3。
+  - 预算闸门：purchase.checkout 金额 > 500 元时 Allow=true 但 NeedsApproval=true，需人工审批。
+- 7 个单测：低风险放行、未知工具拒绝、跨域越权拒绝、低信任调高风险拒绝、高信任高风险放行、超预算需审批、预算内自动。
+
+### 价值
+- Agent 的工具调用不再凭 Prompt 自觉，代码层硬拦截；为后续 Dispatcher 真正执行子任务提供安全闸门。
+
+---
+
 ## [v2.3.4] - 2026-10-25 (A3/A4 Commander 接 flash)
 
 ### 新增
