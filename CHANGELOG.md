@@ -7,6 +7,18 @@
 ---
 
 
+## [v2.3.3] - 2026-10-25 (A2 每用户 PG Agent 注册表)
+
+### 新增
+- 迁移 `033_agent_registry.sql`：表 `agent_registry`（user_wxid+agent_id 唯一，role master/sub，trust_level 0-5，quota_max/quota_used，status active/paused）。
+- 新包 `internal/agentregistry`：Ensure 幂等注册、ListByUser、EnsureAllowed（行锁 FOR UPDATE，未注册/暂停/超配额分别返回 ErrNotFound/ErrPaused/ErrQuotaExceeded，通过则原子 quota+1）、ResetQuota、SetStatus。
+- 真实 PG 单测：master+calendar 注册、列表 2 条、calendar quota=2 第三次被拒、master 不受限、未知 agent not found、暂停后被拒，探针行 DELETE 零残留。
+
+### 价值
+- 总 Agent/子 Agent 不再凭空调度：每个 wxid 的 master 与子 Agent 有落库身份；VIP 配额在代码层强制，越配额直接拦截。
+
+---
+
 ## [v2.3.2] - 2026-10-25 (A5 出站令牌桶)
 
 ### 新增
