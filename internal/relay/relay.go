@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"sync"
@@ -182,11 +183,14 @@ func (s *Service) handleSelfChat(ctx context.Context, accountID, botWxid, fromWx
 	msgs = append(msgs, model.Message{Role: "user", Content: text})
 
 	var reply, routedTo string
+	// D5: model call budget; failures must not leave the user waiting.
+	modelCtx, modelCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer modelCancel()
 	if s.streamer != nil {
 		// B2 流式：首块立即发微信（即时体感），整段生成完再发完整版。
 		var sb strings.Builder
 		firstSent := false
-		resp, err := s.streamer.ChatStream(ctx, &model.ChatRequest{
+		resp, err := s.streamer.ChatStream(modelCtx, &model.ChatRequest{
 			Messages: msgs, Temperature: 0.6, MaxTokens: 800,
 		}, func(delta string) {
 			sb.WriteString(delta)
@@ -203,21 +207,25 @@ func (s *Service) handleSelfChat(ctx context.Context, accountID, botWxid, fromWx
 			}
 		})
 		if err != nil {
-			return nil, fmt.Errorf("relay: model stream: %w", err)
+			log.Printf("[v226] model stream failed: %v", err)
+			reply = "我这边反应慢了一下，麻烦再发一次试试～"
+		} else {
+			routedTo = resp.RoutedTo
+			reply = strings.TrimSpace(sb.String())
 		}
-		routedTo = resp.RoutedTo
-		reply = strings.TrimSpace(sb.String())
 	} else {
-		resp, err := s.mdl.Chat(ctx, &model.ChatRequest{
+		resp, err := s.mdl.Chat(modelCtx, &model.ChatRequest{
 			Messages:    msgs,
 			Temperature: 0.6,
 			MaxTokens:   800,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("relay: model chat: %w", err)
+			log.Printf("[v226] model chat failed: %v", err)
+			reply = "我这边反应慢了一下，麻烦再发一次试试～"
+		} else {
+			routedTo = resp.RoutedTo
+			reply = strings.TrimSpace(resp.Content)
 		}
-		routedTo = resp.RoutedTo
-		reply = strings.TrimSpace(resp.Content)
 	}
 	if reply == "" {
 		reply = "（暂时没有组织好语言，稍后再试）"
