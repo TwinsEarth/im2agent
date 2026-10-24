@@ -6,7 +6,7 @@
 ![npm](https://img.shields.io/npm/v/@twinsearth%2Fim2agent?logo=npm&label=npm)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-SDK-02569B?logo=flutter&logoColor=white)
-![Version](https://img.shields.io/badge/version-v1.8.8-blue)
+![Version](https://img.shields.io/badge/version-v2.1.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 > **Slogan**：让每个人都拥有自己专属的 AI 秘书、助理与管家团队。
@@ -247,7 +247,7 @@ send 请求
 | v1.7.4 | 审计可视化：事件流时间线 + 门控决策回放 |
 | v1.7.5 | 内容审核：自动规则 + 人工审核队列 |
 
-### v1.8 Agent 网络（当前）
+### v1.8 Agent 网络与安全（已完成）
 
 | 版本 | 功能 |
 |---|---|
@@ -260,6 +260,37 @@ send 请求
 | v1.8.5 | 数据脱敏：手机号/金额/地址出端脱敏，审计保留原值（可证明） |
 | v1.8.6 | 等保/个保对齐：合规文档 + 数据主体权利（访问/更正/删除/导出/拒绝自动处理） |
 | v1.8.7 | 渗透测试套件：8 攻击向量真实打公网网关 + 修复闭环 + 渗透报告 |
+| v1.8.8 | 版本收口 + 五方发布；修复 `-race` 三个并行缺陷 |
+
+### v1.9 身份与数据主权（已完成）
+
+| 版本 | 功能 |
+|---|---|
+| v1.9.0 | JWT 身份地基：stdlib HMAC-SHA256 签发/校验、HS256、恒定时间比较、登录 upsert、/me |
+| v1.9.1 | 多用户隔离收紧：Authenticate 统一中间件，横向越权一律 403 |
+| v1.9.2 | Context 端到端信封加密：AES-256-GCM、随机 nonce、GCM 认证、明文不出端 |
+| v1.9.3 | Context 可移植导出/导入加密包 |
+| v1.9.4 | 应用层真实余弦向量检索（256 维 bigram 哈希 + L2 归一化） |
+| v1.9.5 | 私有化离线全栈：多阶段 Dockerfile + GA 手册 |
+| v1.9.7 | 全链路压测：1000 并发 ×5000 真实写 PG，3911 QPS、p99 690ms、零失败 |
+| v1.9.8 | 灰度发布门控：FNV 一致性分桶，按 user/Agent 百分比放量 |
+| v1.9.9 | Prometheus 监控：真实计数 + /metrics + /healthz admin token 鉴权 |
+
+### v2.0 微信 Bot 体系（当前 · v2.1.1 稳定版）
+
+| 版本 | 功能 |
+|---|---|
+| v2.0.0 | Bot 组绑定：一个 wxid 绑一组、组内 ios/android/windows 三端，DB 唯一索引强制 |
+| v2.0.1 | wxid 持久识别（首次分配 uid，后续复用）；Agent 衍生额度（1 主/N 管理/N 子）；VIP free/basic ¥99/pro ¥299/enterprise ¥999 |
+| v2.0.2 | 公私钥身份：Ed25519 密钥对，私钥 AES-256-GCM 加密落库 |
+| v2.0.4 | 微信 Bot 协议契约：消息信封 / 卡片按钮回传 / 幂等键 / Ed25519 签名 |
+| v2.0.5 | Bot API 内核：时间漂移 ±300s、验签、幂等重放、类型分发 |
+| v2.0.6 | Bot SDK Client：自动构造信封/签名/幂等/POST |
+| v2.0.7 | Agent 间通信全链路：identify→occupy→directory upsert→a2a.send |
+| v2.0.8 | 临时协商群：创建/加入/发言/历史/销毁（软 closed + 物理清消息成员） |
+| v2.0.9 | Bot↔Bot 路由：双方必须已绑定、禁止自发自、收件箱拉取 |
+| v2.1.0 | 个人 Agent 工作汇报：聚合当日活动生成草稿、人工审批、按 user+date 去重 |
+| v2.1.1 | 稳定版：18 个 v2 网关端点公网可达（https://geefish.cn），全量门禁通过，五方发布 |
 ---
 
 ## 六、HTTP API 端点清单
@@ -403,6 +434,6 @@ human-agent-im/
 
 ---
 
-**v1.8.7 已交付**：三条流量分离全链路打通（人类→腾讯云 IM / Agent→A2A 协商 / 审批→审计事件流），PG 真实落库测试全 PASS，运营后台 + 双层经验库 + 真实 APNS 通道就位；v1.8.3–v1.8.7 补齐安全合规（STRIDE 威胁建模、数据脱敏、个保数据主体权利、8 向量渗透测试）。
+**v2.1.1 已交付（稳定版）**：在 v1.8.7 三条流量分离基础上，v1.9 补齐 JWT 身份、多用户隔离、Context 端到端 AES-256-GCM 加密、向量检索、压测（3911 QPS）、灰度门控与 Prometheus 监控；v2.0–v2.1 全量落地微信 Bot 体系（组绑定、wxid 持久识别、VIP 额度、Ed25519 公私钥、签名协议、A2A 通信、临时群、Bot 路由、工作汇报），18 个 v2 网关端点公网 https://geefish.cn 实测可达。
 
-**工程质量（本轮全版本审查收口）**：全量 `go test ./...`（注入真实 PG_DSN）27 包全 ok、0 FAIL、0 panic；`make gate`（build/vet/`-race`/7 服务自测）全 PASS；`-race` 无 DATA RACE；所有 real_test 注册 `t.Cleanup`，业务表跑测前后行数完全一致（零残留），`audit_events` 按 WORM 合规设计 append-only（触发器禁删/改，靠唯一标识隔离）。
+**工程质量（v2.1.1 收口）**：全量 `go test ./...`（注入真实 PG_DSN）37 包全 ok、0 FAIL、0 panic；`make gate`（build/vet/`-race`/7 服务自测）全 PASS；8 张 v2 表跑测前后行数完全一致（零残留）；compat 跨平台矩阵 6/6 通过；GitHub Release 已上传 linux/darwin/windows × amd64/arm64 二进制 + sha256；npm `@twinsearth/im2agent@2.1.1` 已发布为 latest。
