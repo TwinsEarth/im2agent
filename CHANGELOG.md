@@ -7,6 +7,21 @@
 ---
 
 
+## [v2.3.12] - 2026-10-25 (D1 审批反馈 → Improvement Memory 桥)
+
+### 新增
+- `internal/orchestration/feedback_bridge.go`：
+  - `ApprovalFeedbackBridge.OnTicketResolved(ticket)` 把审批终态翻译成 distill.Record 调用；
+  - APPROVED=+0.1（强化）、REJECTED=-0.3（明显反对，倾向收紧阈值）、MODIFIED=-0.1（弱反对）；
+  - FAILED/EXPIRED 不打分（不是用户主观决策）；
+  - nil safe，空 agent/type 用 unknown/general 兜底；编译期断言 *distill.Engine 满足接口。
+- 6 个单测：approve 强化、reject 负分、modify 弱负、failed 不打分、nil safe、空字段兜底。
+
+### 价值
+- 用户在微信里点"驳回/修改"，distill 自动收紧同类建议的审批阈值，Agent 越用越顺手——这就是蒸馏闭环的入口。
+
+---
+
 ## [v2.3.11] - 2026-10-25 (C4 出口护栏)
 
 ### 新增
