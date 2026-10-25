@@ -7,6 +7,22 @@
 ---
 
 
+## [v2.3.15] - 2026-10-25 (D3 蒸馏效果监控)
+
+### 新增
+- `internal/orchestration/distill_stats.go`：
+  - `DistillStats` 内存计数器，goroutine 安全；
+  - `Record(state)` 按审批终态计数（approved/rejected/modified/failed/pending）；
+  - `Snapshot()` 返回通过率 / 驳回率 / 修改率 + 健康判定（样本≥50、驳回率<40%、通过率>40%）；
+  - `JSON()` 一行快照，可直接挂到 `/v1/ops/distill`；
+  - nil safe。
+- 6 个单测：空快照、计数与速率、高驳回判不健康、JSON 回环、并发安全、nil safe。
+
+### 价值
+- 蒸馏闭环跑起来后，能一眼看出"Agent 最近变聪明没"：驳回率飙高立刻报警（提案质量下降），通过率过低说明阈值被收紧过了头。
+
+---
+
 ## [v2.3.14] - 2026-10-25 (D2 程序记忆检索与 playbook)
 
 ### 新增
