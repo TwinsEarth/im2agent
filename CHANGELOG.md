@@ -1,3 +1,29 @@
+## [v2.3.27] - 2026-10-25 (真机回归：工具名归一化 + L4 决策可观测)
+
+### 新增
+- **工具名归一化**（`internal/orchestration/normalize.go`）：flash Commander 常自造工具名
+  （search_products / create_event / buy / repair…），而 PermissionGate 为白名单 deny-by-default。
+  新增别名表把常见自由命名映射到内置词汇（purchase.search/purchase.checkout/calendar.add/
+  calendar.list/property.report/legal.draft/parenting.remind/im.send/mail.send），
+  ParsePlan 解码后对每个 step.Tool 归一化，模糊包含兜底；未识别仍按门控拒绝，安全不降级。
+- **Commander 提示词逐字列出可用 tool 词汇表**（commander.go systemPrompt），
+  减少模型自造工具名。
+- **L4 决策可观测**（runner.go）：每条消息在 Runner.Run 打印 `[l4] plan intent= conf= activation=
+  subtasks= need_clarify= text=`，透传时打印 `[l4] passthrough intent=`，用于真机定位
+  "为何办事消息被误判为闲聊"。
+
+### 真机验证
+- v2.3.26：`帮我比比酱油多少钱` 真实返回 Skill 输出「酱油」三家比价最低 ¥95.00；
+  agent_registry 自动开通 master/schedule/procurement/legal/parenting/property（trust=3 active）；
+  三层记忆落库 working/episodes/facts 均有写入。
+- v2.3.27：`明天下午3点提醒我开周会` 日志确认 `intent=task conf=0.97 subtasks=1`，真实调起日历 Skill。
+
+### 测试
+- 新增 `normalize_test.go`：search_products/buy/create_event/list_events/repair 等别名映射用例。
+- build/vet 零输出；全量 `go test ./...` 44 包 ok。
+
+---
+
 # Changelog
 
 本项目所有重要变更记录于此。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -76,6 +77,8 @@ func (r *Runner) Run(ctx context.Context, userText, recentSummary string, trustL
 		return RunnerResult{Passthrough: true, Reason: "runner nil"}
 	}
 	plan := r.Commander.Plan(ctx, userText, recentSummary)
+	log.Printf("[l4] plan intent=%s conf=%.2f activation=%s subtasks=%d need_clarify=%q text=%q",
+		plan.Intent, plan.Confidence, plan.Activation, len(plan.Subtasks), plan.ClarifyQuestion, truncate(userText, 30))
 
 	// 激活策略：群聊未 @ 等 ignore 场景 → 静默（handled=true 且 reply 为空，中间件不发也不回旧链路）
 	if plan.Activation == ActivationIgnore {
@@ -92,6 +95,7 @@ func (r *Runner) Run(ctx context.Context, userText, recentSummary string, trustL
 	// 2) 非"办事"意图（闲聊/转发/协商/系统）一律透传回旧链路，由完整 chat 模型/中继处理。
 	//    包括 Commander 低置信/超时/解析失败的安全降级（SafeChatPlan intent=chat）。
 	if plan.Intent != IntentTask || len(plan.Subtasks) == 0 {
+		log.Printf("[l4] passthrough intent=%s reason=not-task", plan.Intent)
 		return RunnerResult{Plan: plan, Passthrough: true}
 	}
 
@@ -151,4 +155,12 @@ func (r *Runner) Run(ctx context.Context, userText, recentSummary string, trustL
 	res.Reply = r.Guard.Sanitize(reply)
 	r.Stats.Record("approved")
 	return res
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
