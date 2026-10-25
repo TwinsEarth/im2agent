@@ -7,6 +7,21 @@
 ---
 
 
+## [v2.3.14] - 2026-10-25 (D2 程序记忆检索与 playbook)
+
+### 新增
+- `internal/orchestration/procedural_memory.go`：
+  - `ProceduralMemory.RecordDecision(ctx, sc, trigger, suggestion, decision, note)`：把审批终态按方向写回程序记忆（approve +0.1 / modify −0.1 / reject −0.3）；
+  - `Suggestion(ctx, sc, trigger)`：子 Agent 启动时先查相似审批情境，返回"上次：用户批准（把握 60%）"式提示；
+  - `ShouldAutoExecute(ctx, sc, trigger)`：置信度 ≥0.6 且历史为 approve → 直接执行不再上抛审批；被驳回过的 trigger 永远不会自动执行；
+  - 严格按 Scope 隔离，空 trigger / nil store 安全。
+- 5 个单测：记录并检索、reject 降置信、自动执行阈值、跨 Scope 不串、空输入安全。
+
+### 价值
+- 子 Agent 不再"每次都从零推理"；用户批准过的小事（买牛奶、订周三会议室）下次直接办；用户驳回过的（鲜花、贵的东西）自动收紧，不再烦用户。
+
+---
+
 ## [v2.3.13] - 2026-10-25 (C2 三层记忆增强：Commander 协调视图)
 
 ### 新增
