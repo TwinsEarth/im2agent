@@ -6,6 +6,34 @@
 
 ---
 
+## [v2.3.21] - 2026-10-25 (L4 深度审查修复：闲聊不再被吞 + 澄清 + 门控收紧 + 033 真实落库)
+
+### 修复（第二轮逐文件精读发现的真实缺陷）
+- **L4 开启后会吞掉纯闲聊（最重要）**：原 `L4Hook.MaybeHandle` 对任何消息都返回 handled=true，
+  导致 256-token 的 flash 路由器（非对话模型）用一句“收到。”/短句接管，旧链路的完整 chat 模型永不执行，
+  灰度一开 Bot 反而更笨。现新增 `RunnerResult.Passthrough`：Runner 只接管“办事 task”与“澄清”，
+  纯闲聊 / relay / nego_reply / system / 低置信安全降级（SafeChatPlan）一律透传回旧链路，由完整 chat 模型作答；
+  activation=ignore 静默不回。
+- **NeedClarify 未处理**：无 subtasks 分支原本不回 ClarifyQuestion，现在信息不全时直接回追问句。
+- **门控金额漏洞**：`purchase.checkout` 若 args 缺 amount 字段，旧逻辑跳过预算检查、trust≥3 即自动放行；
+  现缺金额→必须上抛审批（无法核对预算），金额≤0→拒绝。
+- **Commander systemPrompt 字段不符**：原 prompt 引用 Plan 顶层不存在的 `requires_confirmation`（实际在 ToolStep），
+  改为 schema 自洽的路由指令，并明确闲聊时 reply_hint 留空、交对话模型。
+- 蒸馏统计只计“办事”裁决，透传闲聊不再虚增 approved/pass-rate。
+
+### 测试加固
+- 重写 `l4hook_test.go`：任务被接管、纯闲聊透传、8 档开关、nil safe。
+- 重写 `runner_e2e_test.go`：闲聊透传 / 澄清回问 / relay·nego·system 透传 / ignore 静默 /
+  allowed·deny·over-budget / checkout 缺金额需审批+负数拒绝 / 统计只计办事 / nil safe。
+- 033 `agent_registry` 真实 PG 落库断言实跑通过（Ensure 幂等、FOR UPDATE 配额原子+1、
+  配额超限、paused 拦截、未知 agent 404），零残留。
+
+### 验证
+- 全仓 `go build ./...` / `go vet ./...` 零输出；`go test ./...` 43 包 ok、0 FAIL；
+  orchestration/inqueue/agentregistry 三包 `-race` 通过。
+
+---
+
 
 ## [v2.3.20] - 2026-10-25 (全量审查加固：真实落库测试 + 性能基准)
 

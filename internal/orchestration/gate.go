@@ -92,11 +92,18 @@ func (g *PermissionGate) Check(agent SubAgentID, step ToolStep, trustLevel int) 
 		return Decision{Allow: false, Reason: fmt.Sprintf("high-risk %s requires trust>=%d (got %d)", step.Tool, g.MinTrustForHigh, trustLevel)}
 	}
 	if meta.budgetKey != "" {
-		if v, ok := step.Args[meta.budgetKey]; ok {
-			amt := toFloat(v)
-			if amt > g.BudgetThreshold {
-				return Decision{Allow: true, NeedsApproval: true, Reason: fmt.Sprintf("amount %.2f > threshold %.2f", amt, g.BudgetThreshold)}
-			}
+		// 涉及金额的工具：金额缺失/无法解析时无法核对预算，必须上抛审批（不得默认放行）；
+		// 金额为负或 0 视为非法，拒绝。
+		v, present := step.Args[meta.budgetKey]
+		if !present {
+			return Decision{Allow: true, NeedsApproval: true, Reason: fmt.Sprintf("%s 缺少金额字段 %q，无法核对预算，需人工确认", step.Tool, meta.budgetKey)}
+		}
+		amt := toFloat(v)
+		if amt <= 0 {
+			return Decision{Allow: false, Reason: fmt.Sprintf("%s 金额非法（%.2f）", step.Tool, amt)}
+		}
+		if amt > g.BudgetThreshold {
+			return Decision{Allow: true, NeedsApproval: true, Reason: fmt.Sprintf("amount %.2f > threshold %.2f", amt, g.BudgetThreshold)}
 		}
 	}
 	return Decision{Allow: true}
