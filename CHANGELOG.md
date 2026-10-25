@@ -7,6 +7,20 @@
 ---
 
 
+## [v2.3.13] - 2026-10-25 (C2 三层记忆增强：Commander 协调视图)
+
+### 新增
+- `internal/orchestration/commander_memory.go`：
+  - `CommanderMemory` 总 Agent 专用记忆视图，命名空间 `AgentID="__commander__"`；
+  - `SetCoordination/GetCoordination`：跨子 Agent 协调摘要写在 commander 命名空间，子 Agent 读不到；≤1000 字硬截断；
+  - `UserDigest(userID, agentIDs)`：跨子 Agent 拉最近活动（每 Agent 最多 2 条 episode）拼成 ≤600 字摘要，供 Commander 路由用，不直接拉子 Agent 原始 facts/episodes；自动跳过 commander 自身。
+- 6 个单测：协调摘要读写回环、不泄露给子 Agent、跨 Agent digest 聚合、跳过 commander 自身、超长截断、nil safe。
+
+### 价值
+- 落实 L4 v2 §2.7 硬约束："总 Agent 只持有跨子 Agent 的协调摘要，不直接读取子 Agent 原始记忆向量"——记忆隔离从设计落到代码。
+
+---
+
 ## [v2.3.12] - 2026-10-25 (D1 审批反馈 → Improvement Memory 桥)
 
 ### 新增
