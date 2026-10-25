@@ -12,7 +12,7 @@ type fakeInterceptor struct {
 	handled bool
 }
 
-func (f *fakeInterceptor) MaybeHandle(ctx context.Context, text, summary string) (string, bool) {
+func (f *fakeInterceptor) MaybeHandle(ctx context.Context, wxid, text string) (string, bool) {
 	return f.reply, f.handled
 }
 

@@ -15,10 +15,10 @@ import (
 // 而不是重新调大模型从头推理；连续驳回同类操作后自动收紧阈值。
 
 type ProceduralMemory struct {
-	store *memory.MemoryStore
+	store memory.Store
 }
 
-func NewProceduralMemory(store *memory.MemoryStore) *ProceduralMemory {
+func NewProceduralMemory(store memory.Store) *ProceduralMemory {
 	return &ProceduralMemory{store: store}
 }
 

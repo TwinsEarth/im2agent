@@ -13,6 +13,7 @@ import (
 	"human-agent-im/internal/broadcast"
 	"human-agent-im/internal/gray"
 	"human-agent-im/internal/inqueue"
+	"human-agent-im/internal/memory"
 	"human-agent-im/internal/metrics"
 	"human-agent-im/internal/model"
 	"human-agent-im/internal/openclaw"
@@ -456,6 +457,11 @@ func main() {
 				orchestration.NewExitGuard(),
 				orchestration.NewDistillStats(),
 			))
+			// v2.3.23：L4 接入持久三层记忆（PG/pgvector，重启不丢、按 wxid 隔离）。
+			if l4Hook != nil && deps.DB != nil {
+				l4Hook = l4Hook.WithMemory(memory.NewPGStore(deps.DB), memory.NewPGSubjectResolver(deps.DB))
+				log.Println("[inqueue] L4 three-layer memory wired (PG/pgvector)")
+			}
 			ocSender := openclaw.NewSender()
 			selfHandler = inqueue.WithL4(selfHandler, l4Hook, func(ctx context.Context, ev inqueue.Event, reply string) error {
 				_, err := ocSender.Send(ctx, ev.Account, ev.FromWxid, reply)

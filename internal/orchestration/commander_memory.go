@@ -25,10 +25,10 @@ const CommanderAgentID = "__commander__"
 
 // CommanderMemory 总 Agent 专用记忆视图。
 type CommanderMemory struct {
-	store *memory.MemoryStore
+	store memory.Store
 }
 
-func NewCommanderMemory(store *memory.MemoryStore) *CommanderMemory {
+func NewCommanderMemory(store memory.Store) *CommanderMemory {
 	return &CommanderMemory{store: store}
 }
 

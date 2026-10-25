@@ -51,7 +51,7 @@ func TestL4Hook_TaskHandled(t *testing.T) {
 	if h == nil {
 		t.Fatalf("on should return hook")
 	}
-	reply, handled := h.MaybeHandle(context.Background(), "提醒我开会", "")
+	reply, handled := h.MaybeHandle(context.Background(), "wx_task", "提醒我开会")
 	if !handled {
 		t.Fatalf("task should be handled by L4")
 	}
@@ -64,7 +64,7 @@ func TestL4Hook_ChatPassthrough(t *testing.T) {
 	os.Setenv("L4_ENABLED", "1")
 	defer os.Unsetenv("L4_ENABLED")
 	h := newOnHook(hookChatPlanner{})
-	reply, handled := h.MaybeHandle(context.Background(), "你好", "")
+	reply, handled := h.MaybeHandle(context.Background(), "wx_chat", "你好")
 	if handled {
 		t.Fatalf("pure chat must passthrough to old chat chain, got handled reply=%q", reply)
 	}
@@ -72,7 +72,7 @@ func TestL4Hook_ChatPassthrough(t *testing.T) {
 
 func TestL4Hook_NilSafe(t *testing.T) {
 	var h *L4Hook
-	reply, handled := h.MaybeHandle(context.Background(), "x", "")
+	reply, handled := h.MaybeHandle(context.Background(), "wx_nil", "x")
 	if handled || reply != "" {
 		t.Fatalf("nil hook must not handle")
 	}

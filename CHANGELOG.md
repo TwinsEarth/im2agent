@@ -6,6 +6,30 @@
 
 ---
 
+## [v2.3.23] - 2026-10-25 (L4 三层记忆接 PG/pgvector，重启不丢)
+
+### 新增
+- **wxid → 记忆命名空间稳定映射**：新增迁移 `034_l4_subjects`（identity 表 + wxid 唯一索引），
+  `memory.SubjectResolver` 把微信 wxid 幂等映射为记忆 user_id，并统一加 `L4SubjectOffset=1_000_000_000`
+  高位偏移，与真实 users.id 小整数命名空间彻底隔离，杜绝跨渠道/跨用户串记忆。
+- **L4Hook 接入持久三层记忆**：MaybeHandle 现携带 wxid；规划前注入"跨助理协调摘要 + 各子 Agent
+  最近办事轨迹 + 管家级高置信偏好"；L4 接管后按子 Agent 落情景记忆（episodes），同一用户下一轮
+  及进程重启后可被检索召回。记忆走 `memory.Store` 接口（生产 PGStore，单测 MemoryStore）。
+- `CommanderMemory`/`ProceduralMemory` 字段由具体类型 `*memory.MemoryStore` 改为 `memory.Store` 接口，
+  从而可注入 PG 持久实现；gateway 在 L4 开启且 DB 可用时装配 PGStore + PGSubjectResolver。
+- inqueue `L4Interceptor.MaybeHandle` 增加 wxid 参数，中间件传 `ev.FromWxid`。
+
+### 测试
+- 新增 `memory/subject_real_test.go`：真实 PG 落库（幂等同 id、不同 wxid 不同 id、高位偏移、
+  重启重解析可读回、空 wxid 报错），cleanup 零残留。
+- 新增 `orchestration/l4memory_test.go`：任务落情景记忆、模拟重启后摘要召回、跨用户隔离、
+  闲聊透传不写记忆。
+- 同步 inqueue/orchestration 既有测试签名。
+
+### 验证
+- `go build/vet` 零输出；`go test ./...` 全 43 包 ok、0 FAIL；memory/orchestration/inqueue `-race` 通过；
+  真实 PG 身份映射测试通过且 probe 零残留。
+
 ## [v2.3.22] - 2026-10-25 (第三轮全量审查：修复审批 MemoryStore.ListPending 恒空)
 
 ### 修复
