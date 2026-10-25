@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"human-agent-im/internal/agentregistry"
 	"human-agent-im/internal/botroute"
 	"human-agent-im/internal/broadcast"
 	"human-agent-im/internal/gray"
@@ -461,6 +462,8 @@ func main() {
 			if l4Hook != nil && deps.DB != nil {
 				l4Hook = l4Hook.WithMemory(memory.NewPGStore(deps.DB), memory.NewPGSubjectResolver(deps.DB))
 				log.Println("[inqueue] L4 three-layer memory wired (PG/pgvector)")
+				l4Hook = l4Hook.WithTrust(agentregistry.New(deps.DB))
+				log.Println("[inqueue] L4 real trust-level wired (agent_registry)")
 			}
 			ocSender := openclaw.NewSender()
 			selfHandler = inqueue.WithL4(selfHandler, l4Hook, func(ctx context.Context, ev inqueue.Event, reply string) error {

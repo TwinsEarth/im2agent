@@ -6,6 +6,26 @@
 
 ---
 
+## [v2.3.24] - 2026-10-25 (agent_registry 接生产：首消息自动开通 + 门控读真实信任档)
+
+### 新增
+- **注册表接生产**：`agentregistry.Store.TrustLevel(wxid)` 在用户首条消息时幂等开通
+  master + 五个子 Agent（schedule/procurement/legal/parenting/property），全部
+  `ON CONFLICT DO NOTHING`——绝不覆盖运营/管理员后续设置的 trust_level、status、配额。
+- **门控读真实信任档**：L4Hook 新增 `TrustProvider`，规划前按 wxid 从注册表读 master 的真实
+  trust_level 传入 PermissionGate，替换固定的 3；读取失败安全回退默认档，不阻断消息。
+- master 被暂停时 TrustLevel 返回 ErrPaused；gateway 装配 `agentregistry.New(deps.DB)`。
+
+### 测试
+- 新增 `agentregistry/provision_real_test.go`（真实 PG）：首次开通 6 个 Agent、管理员改 trust
+  后重复开通不被覆盖、master 暂停返回 ErrPaused、空 wxid 拒绝，cleanup 零残留。
+- 新增 `orchestration/l4trust_test.go`：trust=2 高风险 im.send 被拒、trust=3 放行、
+  provider 出错回退默认档。
+
+### 验证
+- `go build/vet` 零输出；`go test ./...` 全 43 包 ok、0 FAIL；agentregistry/orchestration `-race` 通过；
+  真实 PG 开通测试通过且 probe 零残留。
+
 ## [v2.3.23] - 2026-10-25 (L4 三层记忆接 PG/pgvector，重启不丢)
 
 ### 新增

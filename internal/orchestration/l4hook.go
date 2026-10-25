@@ -33,8 +33,16 @@ type L4Hook struct {
 	Mem memory.Store
 	// Subj 外部渠道身份→记忆命名空间解析器（可选，Mem 非 nil 时应同时提供）。
 	Subj memory.SubjectResolver
+	// Trust 生产注册表信任档提供者（v2.3.24）；nil 时用固定 TrustLevel 默认档。
+	Trust TrustProvider
 
 	epSeq uint64 // 情景记忆 id 去重计数
+}
+
+// TrustProvider 从生产注册表读取该用户的真实信任档（并负责首消息自动开通）。
+// 由 agentregistry.Store.TrustLevel 实现；返回 false/err 时钩子回退默认档。
+type TrustProvider interface {
+	TrustLevel(ctx context.Context, wxid string) (int, error)
 }
 
 // EnvBool 把 on/1/true/yes 视为开（大小写不敏感），与 main.go 的 "on" 约定对齐。
@@ -64,6 +72,15 @@ func (h *L4Hook) WithMemory(mem memory.Store, subj memory.SubjectResolver) *L4Ho
 	return h
 }
 
+// WithTrust 接入生产注册表信任档提供者（v2.3.24，门控读真实信任档）。
+func (h *L4Hook) WithTrust(tp TrustProvider) *L4Hook {
+	if h == nil {
+		return nil
+	}
+	h.Trust = tp
+	return h
+}
+
 // MaybeHandle 走编排管线。wxid 为微信发送方身份（用于记忆命名空间）。
 // handled=false（Passthrough）：闲聊/转发/协商/系统/安全降级，交回旧链路，由完整 chat 模型回答。
 // handled=true 且 reply 非空：把 reply 发回微信。
@@ -86,13 +103,23 @@ func (h *L4Hook) MaybeHandle(ctx context.Context, wxid, userText string) (reply 
 		}
 	}
 
-	// 2) 跑编排。
-	res := h.Runner.Run(ctx, userText, recentSummary, h.TrustLevel)
+	// 2) 解析真实信任档（v2.3.24，生产注册表；失败回退默认档，不阻断）。
+	trust := h.TrustLevel
+	if h.Trust != nil && strings.TrimSpace(wxid) != "" {
+		if t, err := h.Trust.TrustLevel(ctx, wxid); err == nil {
+			trust = t
+		} else {
+			log.Printf("[l4] trust resolve failed wxid=%s: %v (fallback %d)", wxid, err, trust)
+		}
+	}
+
+	// 3) 跑编排。
+	res := h.Runner.Run(ctx, userText, recentSummary, trust)
 	if res.Passthrough {
 		return "", false
 	}
 
-	// 3) L4 接管（澄清/办事/静默）→ 落情景记忆，供下一轮检索。
+	// 4) L4 接管（澄清/办事/静默）→ 落情景记忆，供下一轮检索。
 	if h.Mem != nil && userID != 0 {
 		h.recordEpisode(ctx, userID, userText, res)
 	}
