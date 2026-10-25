@@ -7,6 +7,21 @@
 ---
 
 
+## [v2.3.17] - 2026-10-25 (L4 灰度接线钩子)
+
+### 新增
+- `internal/orchestration/l4hook.go`：
+  - `L4Hook` 从环境变量 `L4_ENABLED` 读开关；默认 off（nil），对生产零影响；
+  - `NewL4Hook(runner)` 关时返回 nil，on 时返回钩子；
+  - `MaybeHandle(ctx, text, summary)` 接管即返回已过护栏的微信文案，handled=true 时旧链路不再跑；
+  - nil safe。
+- 3 个单测：默认 off、on 接管、nil safe。
+
+### 价值
+- Runner 已就绪但没接生产。这版把"开关"做成零风险灰度：systemd drop-in 追加 `Environment=L4_ENABLED=1` 即可打开，回滚就删掉。下版再把 inqueue worker 真接上。
+
+---
+
 ## [v2.3.16] - 2026-10-25 (D4 端到端编排 Runner)
 
 ### 新增
