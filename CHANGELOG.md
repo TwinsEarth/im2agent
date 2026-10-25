@@ -7,6 +7,20 @@
 ---
 
 
+## [v2.3.18] - 2026-10-25 (inqueue L4 中间件)
+
+### 新增
+- `internal/inqueue/l4_middleware.go`：
+  - 定义最小切面 `L4Interceptor`（`MaybeHandle`）和 `ReplyFunc`，inqueue 不直接 import orchestration，避免环依赖；
+  - `WithL4(h, interceptor, reply)` 把旧 Handler 包一层：hook 接管 → 直接调 ReplyFunc 发回微信，旧 handler 不跑；未接管 → 透传；
+  - interceptor 为 nil 时零开销返回原 handler；Reply 出错向上抛，让 worker 标记 error。
+- 4 个单测：nil 透传、handled 短路、未 handled 透传、reply 错误传播。
+
+### 价值
+- 生产接线的最后一块拼图就绪：relay 里把旧 handler 和 `orchestration.NewL4Hook(NewRunner(...))` 以及 openclaw 出站函数传进 `WithL4`，systemd 打开 `L4_ENABLED=1` 即灰度生效。
+
+---
+
 ## [v2.3.17] - 2026-10-25 (L4 灰度接线钩子)
 
 ### 新增
