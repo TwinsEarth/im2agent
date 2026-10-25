@@ -2,7 +2,9 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 )
 
 // v2.3.16 D4：端到端编排 Runner（composition root）。
@@ -32,6 +34,17 @@ type Runner struct {
 	Gate      *PermissionGate
 	Guard     *ExitGuard
 	Stats     *DistillStats
+	// Exec 真实工具执行器（v2.3.25）。nil 时只规划不执行（保留旧行为，便于单测/骨架期）。
+	Exec ToolExecutor
+}
+
+// WithExecutor 注入真实 Skill 执行器（消除"假已办"）。返回自身便于链式装配。
+func (r *Runner) WithExecutor(exec ToolExecutor) *Runner {
+	if r == nil {
+		return nil
+	}
+	r.Exec = exec
+	return r
 }
 
 func NewRunner(cmd *Commander, gate *PermissionGate, guard *ExitGuard, stats *DistillStats) *Runner {
@@ -52,6 +65,8 @@ type RunnerResult struct {
 	Passthrough bool   // 不由 L4 接管，交回旧链路（闲聊/转发/协商/系统/安全降级）
 	Reason      string
 	Plan        Plan
+	Executed    bool     // v2.3.25：是否真正调用了 Skill 执行
+	ExecResults []string // 各工具真实返回文本
 }
 
 // Run 跑一次编排。trustLevel 是当前用户对该用户的信任档（0–5）。
@@ -80,7 +95,7 @@ func (r *Runner) Run(ctx context.Context, userText, recentSummary string, trustL
 		return RunnerResult{Plan: plan, Passthrough: true}
 	}
 
-	// 3) 办事：逐工具门控
+	// 3) 办事：逐工具门控 → 门控放行后真正执行（v2.3.25）。
 	res := RunnerResult{Plan: plan, Allowed: true}
 	for _, st := range plan.Subtasks {
 		for _, step := range st.Steps {
@@ -100,12 +115,38 @@ func (r *Runner) Run(ctx context.Context, userText, recentSummary string, trustL
 				r.Stats.Record("pending")
 				return res
 			}
+			// 门控放行 → 真正调 Skill（无执行器时只规划，维持旧行为并明确标注未执行）。
+			if r.Exec != nil {
+				out, err := r.Exec.Execute(ctx, st.SubAgent, step, trustLevel)
+				if err != nil {
+					// 未接通的能力：诚实告知，绝不回"已安排好"。
+					if errors.Is(err, ErrToolNotWired) {
+						res.Allowed = false
+						res.Reason = err.Error()
+						res.Reply = r.Guard.Sanitize("这项能力我还没接通，暂时没法替你直接办，等对接好了再帮你。")
+						r.Stats.Record("not_wired")
+						return res
+					}
+					res.Allowed = false
+					res.Reason = err.Error()
+					res.Reply = r.Guard.Sanitize("刚才没办成：" + err.Error())
+					r.Stats.Record("failed")
+					return res
+				}
+				if strings.TrimSpace(out) != "" {
+					res.Executed = true
+					res.ExecResults = append(res.ExecResults, out)
+				}
+			}
 		}
 	}
-	// 全部放行
-	reply := plan.ReplyHint
-	if reply == "" {
-		reply = "已为你安排好。"
+	// 全部放行：有真实执行结果就据实回，否则回计划提示（无执行器时的回退）。
+	reply := strings.Join(res.ExecResults, "\n")
+	if strings.TrimSpace(reply) == "" {
+		reply = plan.ReplyHint
+		if reply == "" {
+			reply = "已为你安排好。"
+		}
 	}
 	res.Reply = r.Guard.Sanitize(reply)
 	r.Stats.Record("approved")

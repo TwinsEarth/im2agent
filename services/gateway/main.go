@@ -20,6 +20,8 @@ import (
 	"human-agent-im/internal/openclaw"
 	"human-agent-im/internal/orchestration"
 	"human-agent-im/internal/relay"
+	"human-agent-im/internal/skillbridge"
+	"human-agent-im/internal/skillruntime"
 	"human-agent-im/internal/tempgroup"
 	"log"
 	"net/http"
@@ -451,13 +453,17 @@ func main() {
 				_, err := relaySvc.Relay(ctx, ev.Account, ev.FromWxid, ev.Text, "inq_"+ev.Account+"_"+ev.FromWxid+"_"+ev.Text)
 				return err
 			})
-			l4Hook := orchestration.NewL4Hook(orchestration.NewRunner(
+			// v2.3.25：Runner 注入真实 Skill 执行器（MCP 门控代理），审批放行后真正调 Skill，
+			// 消除"假已办"；未接通的领域工具据实回告。
+			skillRT := skillruntime.NewRuntime(skillruntime.DefaultRegistry(), nil)
+			l4Runner := orchestration.NewRunner(
 				orchestration.New(orchestration.NewFlashPlanner(
 					model.NewOpenAICompatible(os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL")))),
 				orchestration.DefaultGate(),
 				orchestration.NewExitGuard(),
 				orchestration.NewDistillStats(),
-			))
+			).WithExecutor(skillbridge.New(skillRT))
+			l4Hook := orchestration.NewL4Hook(l4Runner)
 			// v2.3.23：L4 接入持久三层记忆（PG/pgvector，重启不丢、按 wxid 隔离）。
 			if l4Hook != nil && deps.DB != nil {
 				l4Hook = l4Hook.WithMemory(memory.NewPGStore(deps.DB), memory.NewPGSubjectResolver(deps.DB))

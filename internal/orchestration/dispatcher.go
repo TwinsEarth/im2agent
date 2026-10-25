@@ -2,14 +2,20 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
-// ToolExecutor 是 Dispatcher 真正执行工具调用的接口（Phase B/C 接 skillruntime）。
-// 当前 Phase A 只做骨架：未注入 executor 时，任务计划只记录、不执行，避免幻觉动作。
+// ToolExecutor 是 Dispatcher / Runner 真正执行工具调用的接口（v2.3.25 起接 skillruntime）。
+// 未注入 executor 时，任务计划只记录、不执行，避免幻觉动作（"假已办"）。
+// trustLevel 是经 PermissionGate 裁决使用的同一信任档，传给执行侧做二次门控，不采信模型自报。
 type ToolExecutor interface {
-	Execute(ctx context.Context, sub SubAgentID, step ToolStep) (string, error)
+	Execute(ctx context.Context, sub SubAgentID, step ToolStep, trustLevel int) (string, error)
 }
+
+// ErrToolNotWired 表示编排层识别了该工具，但尚无真实 Skill 接通（不能假装已办）。
+// 适配层（skillbridge）对未接入的领域工具返回该错误；Runner 据实回告，不回"已安排好"。
+var ErrToolNotWired = errors.New("tool not wired to a real skill yet")
 
 // Dispatcher 接收 Commander 的 Plan，按依赖图并行/串行编排，并强制有界预算。
 type Dispatcher struct {

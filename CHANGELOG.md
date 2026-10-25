@@ -6,6 +6,29 @@
 
 ---
 
+## [v2.3.25] - 2026-10-25 (任务真执行：Runner 注入真实 MCP Skill 执行器，消除"假已办")
+
+### 新增
+- **Runner 真正执行工具**：PermissionGate 放行后，Runner 调 `ToolExecutor.Execute(ctx, sub, step, trust)`
+  真正落地动作，回复改为 Skill 的真实返回（而非固定 ReplyHint）；`RunnerResult` 新增 Executed/ExecResults。
+- **skillbridge 适配层**（新包 `internal/skillbridge`）：编排抽象工具名 → 真实 MCP 工具映射：
+  calendar.add/list→calendar.query、purchase.search→family-purchase.compare、
+  purchase.checkout→family-purchase.order（元→分）、property.report→home-maintenance.request；
+  通道动作（im/mail/delete）由出站链路完成；legal.draft/parenting.remind 暂无 Skill 时返回
+  `ErrToolNotWired`，Runner 据实回"还没接通"，绝不假装已办。
+- `ToolExecutor` 接口签名加入 trustLevel（与门控同一信任档，二次门控不采信模型自报）。
+- gateway 装配 `skillruntime.DefaultRegistry()` + `skillbridge.New(rt)` 注入 Runner。
+
+### 测试
+- 新增 `skillbridge/bridge_test.go`：真实比价/下单/报修/日程返回真实结果、通道动作 no-op、
+  未接通工具 ErrToolNotWired。
+- 新增 `orchestration/runner_exec_test.go`：执行器被真实调用且回复用 Skill 输出、
+  未接通/执行失败诚实回告、无执行器回退计划提示。
+
+### 验证
+- build/vet 零输出；skillbridge/skillruntime/orchestration `-race` 通过；
+  全量 `go test ./...` 44 包 ok、0 FAIL。
+
 ## [v2.3.24] - 2026-10-25 (agent_registry 接生产：首消息自动开通 + 门控读真实信任档)
 
 ### 新增
