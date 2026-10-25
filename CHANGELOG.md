@@ -7,6 +7,21 @@
 ---
 
 
+## [v2.3.16] - 2026-10-25 (D4 端到端编排 Runner)
+
+### 新增
+- `internal/orchestration/runner.go`：
+  - `Runner` 把 Commander / PermissionGate / ExitGuard / DistillStats 串成一根管子；
+  - `Run(ctx, userText, recentSummary, trustLevel)` 返回 `RunnerResult{Reply, Allowed, NeedApprove, Reason, Plan}`；
+  - 纯闲聊直接过护栏发回复；工具调用逐 Subtask 走 PreToolUse 门控；任意 Deny 友好拒绝；任意 NeedsApproval 上抛审批；
+  - 每次裁决写 DistillStats（approved/rejected/pending）；nil safe。
+- 6 个端到端 smoke 测试：闲聊直通、低风险工具放行、高风险低信任拒绝、超预算上抛审批、统计累加、nil safe。
+
+### 价值
+- L4 Phase A/B/C/D 所有零件第一次在一个进程内被串起来跑通：消息→Plan→门控→护栏→统计。后续只要把 FlashPlanner（已就绪）和 inqueue worker 接进来，就是生产路径。
+
+---
+
 ## [v2.3.15] - 2026-10-25 (D3 蒸馏效果监控)
 
 ### 新增
