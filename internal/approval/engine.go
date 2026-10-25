@@ -126,8 +126,18 @@ func (s *MemoryStore) Save(t *Ticket) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.byID[t.ID] = t
-	if _, ok := s.byUser[t.UserID]; !ok {
-		s.byUser[t.UserID] = nil
+	// v2.3.22：维护 byUser 索引，否则 ListPending 永远为空（历史遗留：
+	// 之前只建 key 不追加 id，调用方只能用 All() 绕过）。
+	ids := s.byUser[t.UserID]
+	found := false
+	for _, x := range ids {
+		if x == t.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.byUser[t.UserID] = append(ids, t.ID)
 	}
 	return nil
 }

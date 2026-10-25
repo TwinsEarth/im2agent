@@ -6,6 +6,20 @@
 
 ---
 
+## [v2.3.22] - 2026-10-25 (第三轮全量审查：修复审批 MemoryStore.ListPending 恒空)
+
+### 修复
+- **approval `MemoryStore.ListPending` 永远返回空**：`Save` 只初始化 `byUser[userID]` 的 key、
+  从不追加 ticket id，导致按用户查待审恒为空（此前只能用 `All()` 绕过）。现 upsert 时维护
+  byUser 索引（去重），ListPending 正确返回非终态票据。
+- 新增 `listpending_test.go`：锁死"按用户列出待审、终态排除、用户隔离"真实行为
+  （旧测试只断言驳回后为 0，无法暴露该缺陷）。
+
+### 验证
+- `go build/vet` 零输出；`go test ./...` 全量 ok、0 FAIL；approval `-race` 通过。
+
+---
+
 ## [v2.3.21] - 2026-10-25 (L4 深度审查修复：闲聊不再被吞 + 澄清 + 门控收紧 + 033 真实落库)
 
 ### 修复（第二轮逐文件精读发现的真实缺陷）
