@@ -46,3 +46,20 @@ func TestL4Hook_NilSafe(t *testing.T) {
 		t.Fatalf("nil hook must not handle")
 	}
 }
+
+func TestL4Hook_OnAliasAccepted(t *testing.T) {
+	for _, v := range []string{"on", "ON", " true ", "yes"} {
+		os.Setenv("L4_ENABLED", v)
+		if NewL4Hook(NewRunner(New(hookPlanner{}), DefaultGate(), NewExitGuard(), NewDistillStats())) == nil {
+			t.Fatalf("L4_ENABLED=%q must activate hook", v)
+		}
+	}
+	os.Unsetenv("L4_ENABLED")
+	for _, v := range []string{"", "off", "0", "no"} {
+		os.Setenv("L4_ENABLED", v)
+		if h := NewL4Hook(NewRunner(New(hookPlanner{}), DefaultGate(), NewExitGuard(), NewDistillStats())); h != nil {
+			t.Fatalf("L4_ENABLED=%q must be off", v)
+		}
+	}
+	os.Unsetenv("L4_ENABLED")
+}

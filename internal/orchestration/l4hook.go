@@ -3,7 +3,7 @@ package orchestration
 import (
 	"context"
 	"os"
-	"strconv"
+	"strings"
 )
 
 // v2.3.17：L4 灰度接线钩子。
@@ -18,10 +18,18 @@ type L4Hook struct {
 	TrustLevel int
 }
 
-// NewL4Hook 从环境变量读开关。off 或 Runner=nil 时 returns nil-safe hook。
+// EnvBool 把 on/1/true/yes 视为开（大小写不敏感），与 main.go 的 "on" 约定对齐。
+func EnvBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "on", "1", "true", "yes":
+		return true
+	}
+	return false
+}
+
+// NewL4Hook 从环境变量读开关。off 或 Runner=nil 时返回 nil（调用方 nil-safe）。
 func NewL4Hook(r *Runner) *L4Hook {
-	on, _ := strconv.ParseBool(os.Getenv("L4_ENABLED"))
-	if !on || r == nil {
+	if !EnvBool(os.Getenv("L4_ENABLED")) || r == nil {
 		return nil
 	}
 	return &L4Hook{Runner: r, TrustLevel: 3}

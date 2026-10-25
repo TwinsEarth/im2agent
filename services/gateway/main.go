@@ -16,6 +16,7 @@ import (
 	"human-agent-im/internal/metrics"
 	"human-agent-im/internal/model"
 	"human-agent-im/internal/openclaw"
+	"human-agent-im/internal/orchestration"
 	"human-agent-im/internal/relay"
 	"human-agent-im/internal/tempgroup"
 	"log"
@@ -261,9 +262,9 @@ func main() {
 	mux.Handle("/v1/ops/orchestration", auth.RequireToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]any{
-			"l4Enabled": os.Getenv("L4_ENABLED") == "on",
-			"phase":     "A-skeleton",
-			"package":   "internal/orchestration (Commander+Plan+Dispatcher, tests only)",
+			"l4Enabled": orchestration.EnvBool(os.Getenv("L4_ENABLED")),
+			"phase":     "D-wired-v2.3.19",
+			"package":   "internal/orchestration wired via inqueue.WithL4 (L4_ENABLED=on)",
 		})
 	}), adminProbeToken))
 
@@ -441,16 +442,38 @@ func main() {
 
 		// v2.3.1 A1：WEBHOOK_ASYNC=on 时启动入站队列 worker（PG OUTBOX，崩溃不丢）。
 		if os.Getenv("WEBHOOK_ASYNC") == "on" && deps.DB != nil {
+			// v2.3.19：L4 编排层真接线（默认 off，零影响）。
+			// L4_ENABLED=on 时，自聊消息先过 Commander→Gate→Guard Runner；
+			// 协商会话（NegoSessionID 非空）始终走旧链路，不被 L4 接管。
+			selfHandler := inqueue.Handler(func(ctx context.Context, ev inqueue.Event) error {
+				_, err := relaySvc.Relay(ctx, ev.Account, ev.FromWxid, ev.Text, "inq_"+ev.Account+"_"+ev.FromWxid+"_"+ev.Text)
+				return err
+			})
+			l4Hook := orchestration.NewL4Hook(orchestration.NewRunner(
+				orchestration.New(orchestration.NewFlashPlanner(
+					model.NewOpenAICompatible(os.Getenv("LLM_BASE_URL"), os.Getenv("LLM_API_KEY"), os.Getenv("LLM_MODEL")))),
+				orchestration.DefaultGate(),
+				orchestration.NewExitGuard(),
+				orchestration.NewDistillStats(),
+			))
+			ocSender := openclaw.NewSender()
+			selfHandler = inqueue.WithL4(selfHandler, l4Hook, func(ctx context.Context, ev inqueue.Event, reply string) error {
+				_, err := ocSender.Send(ctx, ev.Account, ev.FromWxid, reply)
+				return err
+			})
 			worker := inqueue.NewWorker(deps.DB, func(ctx context.Context, ev inqueue.Event) error {
 				if ev.NegoSessionID != "" {
 					_, err := relaySvc.NegoReply(ctx, ev.NegoSessionID, ev.FromWxid, ev.NegoIntent, ev.Text)
 					return err
 				}
-				_, err := relaySvc.Relay(ctx, ev.Account, ev.FromWxid, ev.Text, "inq_"+ev.Account+"_"+ev.FromWxid+"_"+ev.Text)
-				return err
+				return selfHandler(ctx, ev)
 			})
 			go worker.Start(context.Background())
-			log.Println("[inqueue] worker started (WEBHOOK_ASYNC=on)")
+			if l4Hook != nil {
+				log.Println("[inqueue] worker started (WEBHOOK_ASYNC=on, L4 orchestration ENABLED)")
+			} else {
+				log.Println("[inqueue] worker started (WEBHOOK_ASYNC=on, L4 off)")
+			}
 		}
 		mux.HandleFunc("/v1/chat/stream", api.ChatStreamHandler)
 		// v2.0.8 双 Agent 自动协商：双方 Agent 经 A2A 状态机多轮对谈，每轮真实推送给对方微信。

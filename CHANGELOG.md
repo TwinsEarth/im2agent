@@ -7,6 +7,26 @@
 ---
 
 
+## [v2.3.19] - 2026-10-25 (L4 生产真接线 + 审查修复)
+
+### 新增
+- `services/gateway/main.go` inqueue worker 真正装配 L4：
+  - `NewL4Hook(NewRunner(New(NewFlashPlanner(model)), DefaultGate, NewExitGuard, NewDistillStats))`；
+  - 自聊消息经 `inqueue.WithL4` 前置拦截：L4 接管则用 openclaw Sender 直接把护栏文案发回微信，旧 Relay 不再跑；
+  - 协商会话（NegoSessionID 非空）始终走旧链路，不被 L4 接管；
+  - L4_ENABLED 默认 off，启动日志明示 enabled/off。
+- `/v1/ops/orchestration` 状态更新为 D-wired-v2.3.19。
+
+### 修复（全量审查 v2.3.0–v2.3.18 发现）
+- **L4_ENABLED 判定不一致**：l4hook 用 `strconv.ParseBool`（不接受 "on"），main.go 用 `=="on"`，设 `L4_ENABLED=on` 时 hook 永远不激活。改为统一 `orchestration.EnvBool`（on/1/true/yes 大小写不敏感），main.go 状态上报也复用同一函数。
+- 新增 `TestL4Hook_OnAliasAccepted` 覆盖 on/ON/true/yes 与 off/0/no 八档。
+
+### 验证
+- 全仓 `go build ./...`、`go vet ./...` 零输出；43 个测试包全 ok，0 FAIL；L4 四包 -race 全过。
+- 迁移 032/033 真实落库（inbound_events/agent_registry 结构与唯一索引核对通过）。
+
+---
+
 ## [v2.3.18] - 2026-10-25 (inqueue L4 中间件)
 
 ### 新增
