@@ -7,6 +7,25 @@
 ---
 
 
+## [v2.3.20] - 2026-10-25 (全量审查加固：真实落库测试 + 性能基准)
+
+### 新增（审查加固测试）
+- `internal/inqueue/inqueue_real_test.go`：真实 PG 落库断言（INQUEUE_REAL_PG 门控，CI 自动 skip）。
+  - Enqueue 幂等（重复 idem_key 返回 duplicate=true，不重复入队）；
+  - Worker FOR UPDATE SKIP LOCKED 抢占 queued → 处理 → status=done 全链路；
+  - 零残留 cleanup（前后各清一次 audit_v2319_% 数据）。生产实测通过，库内残留 0。
+- `internal/orchestration/bench_audit_test.go`：L4 本地决策性能基准（无网络）：
+  - Runner 全链路（stub planner）5.9 µs/op、1466 B/op、15 allocs；
+  - Gate 闸门 52 ns/op、零分配；ExitGuard 护栏 0.96 µs/op、零分配。
+  - 结论：编排层本地开销相对模型秒级延迟可忽略，瓶颈仍在模型与出站。
+
+### 审查结论（v2.3.0–v2.3.19）
+- 全仓 go build / go vet 零输出；43 个测试包全 ok、0 FAIL；L4 四包 -race 全过。
+- 迁移 032/033 真实落库，inbound_events/agent_registry 结构与唯一索引核对通过。
+- 修复 L4_ENABLED 判定不一致（v2.3.19）；L4 已在 worker 真接线（默认 off）。
+
+---
+
 ## [v2.3.19] - 2026-10-25 (L4 生产真接线 + 审查修复)
 
 ### 新增
